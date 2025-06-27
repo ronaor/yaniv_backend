@@ -1,6 +1,6 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import { createServer } from "http";
-import { Server } from "socket.io";
+import { Server, Socket } from "socket.io";
 import cors from "cors";
 
 const app = express();
@@ -45,14 +45,26 @@ function generateRoomCode(length = 6) {
   return code;
 }
 
-app.get("/", (req, res) => {
+app.get("/", (req: Request, res: Response) => {
   res.json({
     message: "Yaniv Server Running!",
     rooms: Object.keys(rooms).length,
   });
 });
 
-io.on("connection", (socket) => {
+function removePlayerFromRoom(socket: Socket, roomId: string) {
+  const room = rooms[roomId];
+  if (!room) return;
+  room.players = room.players.filter((p) => p.id !== socket.id);
+  io.to(roomId).emit("player_left", { players: room.players });
+  socket.leave(roomId);
+  if (room.players.length === 0) {
+    delete rooms[roomId];
+    console.log(`Room ${roomId} deleted - no players left`);
+  }
+}
+
+io.on("connection", (socket: Socket) => {
   // Create a new room with configs
   socket.on(
     "create_room",
@@ -61,6 +73,12 @@ io.on("connection", (socket) => {
       if (!nickname || !numPlayers || !timePerPlayer) {
         socket.emit("room_error", { message: "Missing required fields." });
         return;
+      }
+      // Remove from previous room if exists
+      const prevRoomId = playerRooms[socket.id];
+      if (prevRoomId) {
+        removePlayerFromRoom(socket, prevRoomId);
+        delete playerRooms[socket.id];
       }
       const roomId = generateRoomCode();
       rooms[roomId] = {
@@ -96,38 +114,66 @@ io.on("connection", (socket) => {
       socket.emit("room_error", { message: "Game already started." });
       return;
     }
+    // Remove from previous room if exists
+    const prevRoomId = playerRooms[socket.id];
+    if (prevRoomId && prevRoomId !== roomId) {
+      removePlayerFromRoom(socket, prevRoomId);
+      delete playerRooms[socket.id];
+    }
     room.players.push({ id: socket.id, nickname });
     playerRooms[socket.id] = roomId;
     socket.join(roomId);
-    io.to(roomId).emit("player_joined", { players: room.players });
-    // If room is now full, start the game
+    io.to(roomId).emit("player_joined", {
+      players: room.players,
+      config: room.config,
+    });
+    // If room is now full, set gameState to started (but do not emit start_game here)
     if (room.players.length === room.config.numPlayers) {
       room.gameState = "started";
+      console.log(`Game started in room ${roomId}`);
       io.to(roomId).emit("start_game", {
         roomId,
-        config: room.config,
         players: room.players,
+        config: room.config,
       });
-      console.log(`Game started in room ${roomId}`);
     }
+  });
+
+  // Get room state (for clients to check if game already started)
+  socket.on(
+    "get_room_state",
+    (data: { roomId: string }, callback: (result: any) => void) => {
+      const { roomId } = data;
+      const room = rooms[roomId];
+      if (!room) {
+        callback({ error: "Room not found." });
+        return;
+      }
+      callback({
+        roomId,
+        players: room.players,
+        config: room.config,
+        gameState: room.gameState,
+      });
+    }
+  );
+
+  // Explicit leave room event
+  socket.on("leave_room", () => {
+    const roomId = playerRooms[socket.id];
+    if (!roomId) return;
+    removePlayerFromRoom(socket, roomId);
+    delete playerRooms[socket.id];
+    console.log(`Player ${socket.id} left room ${roomId} (explicit leave)`);
   });
 
   // Handle disconnects
   socket.on("disconnect", () => {
     const roomId = playerRooms[socket.id];
     if (!roomId) return;
-    const room = rooms[roomId];
-    if (!room) return;
-    // Remove player
-    room.players = room.players.filter((p) => p.id !== socket.id);
-    io.to(roomId).emit("player_left", { players: room.players });
-    // Clean up empty room
-    if (room.players.length === 0) {
-      delete rooms[roomId];
-      console.log(`Room ${roomId} deleted - no players left`);
-    }
+    removePlayerFromRoom(socket, roomId);
     delete playerRooms[socket.id];
-    console.log(`Player ${socket.id} left room ${roomId}`);
+    console.log(`Player ${socket.id} left room ${roomId} (disconnect)`);
   });
 });
 

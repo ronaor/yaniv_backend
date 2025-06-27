@@ -45,6 +45,52 @@ function generateRoomCode(length = 6) {
   return code;
 }
 
+// Helper to find an open room for quick game
+function findOpenRoom(): string | null {
+  for (const [roomId, room] of Object.entries(rooms)) {
+    if (
+      room.gameState === "waiting" &&
+      room.players.length < room.config.numPlayers
+    ) {
+      return roomId;
+    }
+  }
+  return null;
+}
+
+// Helper to add player to a room (used by join_room and quick_game)
+function addPlayerToRoom(socket: Socket, roomId: string, nickname: string) {
+  const room = rooms[roomId];
+  if (!room) return false;
+  // Remove from previous room if exists
+  const prevRoomId = playerRooms[socket.id];
+  if (prevRoomId && prevRoomId !== roomId) {
+    removePlayerFromRoom(socket, prevRoomId);
+    delete playerRooms[socket.id];
+  }
+  // Prevent duplicate join
+  if (!room.players.some((p) => p.id === socket.id)) {
+    room.players.push({ id: socket.id, nickname });
+  }
+  playerRooms[socket.id] = roomId;
+  socket.join(roomId);
+  io.to(roomId).emit("player_joined", {
+    players: room.players,
+    config: room.config,
+  });
+  // If room is now full, start the game
+  if (room.players.length === room.config.numPlayers) {
+    room.gameState = "started";
+    io.to(roomId).emit("start_game", {
+      roomId,
+      config: room.config,
+      players: room.players,
+    });
+    console.log(`Game started in room ${roomId}`);
+  }
+  return true;
+}
+
 app.get("/", (req: Request, res: Response) => {
   res.json({
     message: "Yaniv Server Running!",
@@ -98,6 +144,46 @@ io.on("connection", (socket: Socket) => {
     }
   );
 
+  // Quick game matchmaking
+  socket.on("quick_game", (data: { nickname: string }) => {
+    const { nickname } = data;
+    if (!nickname) {
+      socket.emit("room_error", { message: "Missing nickname." });
+      return;
+    }
+    // Try to find an open room
+    let roomId = findOpenRoom();
+    if (roomId) {
+      // Join existing open room
+      addPlayerToRoom(socket, roomId, nickname);
+      // Send room_created if player is first in room, else rely on player_joined
+      socket.emit("room_created", {
+        roomId,
+        players: rooms[roomId].players,
+        config: rooms[roomId].config,
+      });
+      return;
+    }
+    // No open room, create a new one
+    const numPlayers = Math.floor(Math.random() * 5) + 2; // 2-6 players
+    const timePerPlayer = 15;
+    roomId = generateRoomCode();
+    rooms[roomId] = {
+      players: [{ id: socket.id, nickname }],
+      config: { numPlayers, timePerPlayer },
+      gameState: "waiting",
+      createdAt: new Date(),
+    };
+    playerRooms[socket.id] = roomId;
+    socket.join(roomId);
+    socket.emit("room_created", {
+      roomId,
+      players: rooms[roomId].players,
+      config: rooms[roomId].config,
+    });
+    console.log(`Quick game: Room ${roomId} created by ${nickname}`);
+  });
+
   // Join an existing room by roomId
   socket.on("join_room", (data: { roomId: string; nickname: string }) => {
     const { roomId, nickname } = data;
@@ -114,29 +200,7 @@ io.on("connection", (socket: Socket) => {
       socket.emit("room_error", { message: "Game already started." });
       return;
     }
-    // Remove from previous room if exists
-    const prevRoomId = playerRooms[socket.id];
-    if (prevRoomId && prevRoomId !== roomId) {
-      removePlayerFromRoom(socket, prevRoomId);
-      delete playerRooms[socket.id];
-    }
-    room.players.push({ id: socket.id, nickname });
-    playerRooms[socket.id] = roomId;
-    socket.join(roomId);
-    io.to(roomId).emit("player_joined", {
-      players: room.players,
-      config: room.config,
-    });
-    // If room is now full, set gameState to started (but do not emit start_game here)
-    if (room.players.length === room.config.numPlayers) {
-      room.gameState = "started";
-      console.log(`Game started in room ${roomId}`);
-      io.to(roomId).emit("start_game", {
-        roomId,
-        players: room.players,
-        config: room.config,
-      });
-    }
+    addPlayerToRoom(socket, roomId, nickname);
   });
 
   // Get room state (for clients to check if game already started)

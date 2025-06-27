@@ -14,6 +14,37 @@ const io = new Server(server, {
 
 app.use(cors());
 
+// Store active rooms
+interface Player {
+  id: string;
+  nickname: string;
+}
+
+interface RoomConfig {
+  numPlayers: number;
+  timePerPlayer: number; // in seconds
+}
+
+interface Room {
+  players: Player[];
+  config: RoomConfig;
+  gameState: "waiting" | "started";
+  createdAt: Date;
+}
+
+const rooms: { [roomId: string]: Room } = {};
+const playerRooms: { [socketId: string]: string } = {};
+
+// Helper to generate a short alphanumeric room code
+function generateRoomCode(length = 6) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 app.get("/", (req, res) => {
   res.json({
     message: "Yaniv Server Running!",
@@ -21,82 +52,84 @@ app.get("/", (req, res) => {
   });
 });
 
-// Store active rooms
-const rooms: { [roomId: string]: any } = {};
-const playerRooms: { [socketId: string]: string } = {};
-
 io.on("connection", (socket) => {
-  socket.on("join_room", (data: { nickname: string }) => {
-    const { nickname } = data;
-
-    let roomId = findAvailableRoom();
-    if (!roomId) {
-      roomId = createNewRoom();
+  // Create a new room with configs
+  socket.on(
+    "create_room",
+    (data: { nickname: string; numPlayers: number; timePerPlayer: number }) => {
+      const { nickname, numPlayers, timePerPlayer } = data;
+      if (!nickname || !numPlayers || !timePerPlayer) {
+        socket.emit("room_error", { message: "Missing required fields." });
+        return;
+      }
+      const roomId = generateRoomCode();
+      rooms[roomId] = {
+        players: [{ id: socket.id, nickname }],
+        config: { numPlayers, timePerPlayer },
+        gameState: "waiting",
+        createdAt: new Date(),
+      };
+      playerRooms[socket.id] = roomId;
+      socket.join(roomId);
+      socket.emit("room_created", {
+        roomId,
+        players: rooms[roomId].players,
+        config: rooms[roomId].config,
+      });
+      console.log(`Room ${roomId} created by ${nickname}`);
     }
+  );
 
-    // Track which room this player joined
+  // Join an existing room by roomId
+  socket.on("join_room", (data: { roomId: string; nickname: string }) => {
+    const { roomId, nickname } = data;
+    const room = rooms[roomId];
+    if (!room) {
+      socket.emit("room_error", { message: "Room not found." });
+      return;
+    }
+    if (room.players.length >= room.config.numPlayers) {
+      socket.emit("room_error", { message: "Room is full." });
+      return;
+    }
+    if (room.gameState !== "waiting") {
+      socket.emit("room_error", { message: "Game already started." });
+      return;
+    }
+    room.players.push({ id: socket.id, nickname });
     playerRooms[socket.id] = roomId;
-
-    rooms[roomId].players.push({
-      id: socket.id,
-      nickname: nickname,
-    });
-
     socket.join(roomId);
-    socket.emit("joined_room", { roomId, players: rooms[roomId].players });
-    socket
-      .to(roomId)
-      .emit("player_joined", { nickname, players: rooms[roomId].players });
+    io.to(roomId).emit("player_joined", { players: room.players });
+    // If room is now full, start the game
+    if (room.players.length === room.config.numPlayers) {
+      room.gameState = "started";
+      io.to(roomId).emit("start_game", {
+        roomId,
+        config: room.config,
+        players: room.players,
+      });
+      console.log(`Game started in room ${roomId}`);
+    }
   });
 
+  // Handle disconnects
   socket.on("disconnect", () => {
     const roomId = playerRooms[socket.id];
-
-    if (roomId && rooms[roomId]) {
-      // Remove player from room
-      rooms[roomId].players = rooms[roomId].players.filter(
-        (player: any) => player.id !== socket.id
-      );
-
-      // Notify other players
-      socket.to(roomId).emit("player_left", {
-        players: rooms[roomId].players,
-      });
-
-      // Clean up empty rooms
-      if (rooms[roomId].players.length === 0) {
-        delete rooms[roomId];
-        console.log(`Room ${roomId} deleted - no players left`);
-      }
-
-      // Clean up player tracking
-      delete playerRooms[socket.id];
-
-      console.log(`Player ${socket.id} left room ${roomId}`);
+    if (!roomId) return;
+    const room = rooms[roomId];
+    if (!room) return;
+    // Remove player
+    room.players = room.players.filter((p) => p.id !== socket.id);
+    io.to(roomId).emit("player_left", { players: room.players });
+    // Clean up empty room
+    if (room.players.length === 0) {
+      delete rooms[roomId];
+      console.log(`Room ${roomId} deleted - no players left`);
     }
+    delete playerRooms[socket.id];
+    console.log(`Player ${socket.id} left room ${roomId}`);
   });
 });
-
-function findAvailableRoom(): string | null {
-  for (const [roomId, room] of Object.entries(rooms)) {
-    if (room.players.length < 4) {
-      // Max 4 players for Yaniv
-      return roomId;
-    }
-  }
-  return null;
-}
-
-function createNewRoom(): string {
-  const roomId = "room_" + Date.now();
-  rooms[roomId] = {
-    players: [],
-    gameState: "waiting",
-    createdAt: new Date(),
-  };
-  console.log(`Created new room: ${roomId}`);
-  return roomId;
-}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

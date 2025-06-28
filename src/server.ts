@@ -2,6 +2,8 @@ import express, { Request, Response } from "express";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import cors from "cors";
+import { RoomCallbacks, RoomManager } from "./roomManager";
+import { GameManager } from "./gameManager";
 
 const app = express();
 const server = createServer(app);
@@ -14,205 +16,77 @@ const io = new Server(server, {
 
 app.use(cors());
 
-// Store active rooms
-interface Player {
-  id: string;
-  nickname: string;
-}
+const callbacks: RoomCallbacks = {
+  roomFullCallback: function (roomId: string): void {
+    gameManager.startGame(roomId);
+  },
+};
 
-interface RoomConfig {
-  numPlayers: number;
-  timePerPlayer: number; // in seconds
-}
+// Initialize managers
+const roomManager = new RoomManager(io, callbacks);
+const gameManager = new GameManager(io, roomManager);
 
-interface Room {
-  players: Player[];
-  config: RoomConfig;
-  gameState: "waiting" | "started";
-  createdAt: Date;
-}
-
-const rooms: { [roomId: string]: Room } = {};
-const playerRooms: { [socketId: string]: string } = {};
-
-// Helper to generate a short alphanumeric room code
-function generateRoomCode(length = 6) {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let code = "";
-  for (let i = 0; i < length; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-// Helper to find an open room for quick game
-function findOpenRoom(): string | null {
-  for (const [roomId, room] of Object.entries(rooms)) {
-    if (
-      room.gameState === "waiting" &&
-      room.players.length < room.config.numPlayers
-    ) {
-      return roomId;
-    }
-  }
-  return null;
-}
-
-// Helper to add player to a room (used by join_room and quick_game)
-function addPlayerToRoom(socket: Socket, roomId: string, nickname: string) {
-  const room = rooms[roomId];
-  if (!room) return false;
-  // Remove from previous room if exists
-  const prevRoomId = playerRooms[socket.id];
-  if (prevRoomId && prevRoomId !== roomId) {
-    removePlayerFromRoom(socket, prevRoomId);
-    delete playerRooms[socket.id];
-  }
-  // Prevent duplicate join
-  if (!room.players.some((p) => p.id === socket.id)) {
-    room.players.push({ id: socket.id, nickname });
-  }
-  playerRooms[socket.id] = roomId;
-  socket.join(roomId);
-  io.to(roomId).emit("player_joined", {
-    players: room.players,
-    config: room.config,
-  });
-  // If room is now full, start the game
-  if (room.players.length === room.config.numPlayers) {
-    room.gameState = "started";
-    io.to(roomId).emit("start_game", {
-      roomId,
-      config: room.config,
-      players: room.players,
-    });
-    console.log(`Game started in room ${roomId}`);
-  }
-  return true;
-}
-
+// Status endpoint
 app.get("/", (req: Request, res: Response) => {
   res.json({
     message: "Yaniv Server Running!",
-    rooms: Object.keys(rooms).length,
+    rooms: roomManager.getRoomsCount(),
   });
 });
 
-function removePlayerFromRoom(socket: Socket, roomId: string) {
-  const room = rooms[roomId];
-  if (!room) return;
-  room.players = room.players.filter((p) => p.id !== socket.id);
-  io.to(roomId).emit("player_left", { players: room.players });
-  socket.leave(roomId);
-  if (room.players.length === 0) {
-    delete rooms[roomId];
-    console.log(`Room ${roomId} deleted - no players left`);
-  }
-}
-
 io.on("connection", (socket: Socket) => {
-  // Create a new room with configs
+  console.log(`Player connected: ${socket.id}`);
+
+  // Room management events
   socket.on(
     "create_room",
     (data: { nickname: string; numPlayers: number; timePerPlayer: number }) => {
       const { nickname, numPlayers, timePerPlayer } = data;
-      if (!nickname || !numPlayers || !timePerPlayer) {
-        socket.emit("room_error", { message: "Missing required fields." });
-        return;
+      const roomId = roomManager.createRoom(
+        socket,
+        nickname,
+        numPlayers,
+        timePerPlayer
+      );
+
+      if (roomId) {
+        // Room created successfully
+        console.log(`Room ${roomId} created by ${nickname}`);
       }
-      // Remove from previous room if exists
-      const prevRoomId = playerRooms[socket.id];
-      if (prevRoomId) {
-        removePlayerFromRoom(socket, prevRoomId);
-        delete playerRooms[socket.id];
-      }
-      const roomId = generateRoomCode();
-      rooms[roomId] = {
-        players: [{ id: socket.id, nickname }],
-        config: { numPlayers, timePerPlayer },
-        gameState: "waiting",
-        createdAt: new Date(),
-      };
-      playerRooms[socket.id] = roomId;
-      socket.join(roomId);
-      socket.emit("room_created", {
-        roomId,
-        players: rooms[roomId].players,
-        config: rooms[roomId].config,
-      });
-      console.log(`Room ${roomId} created by ${nickname}`);
     }
   );
 
-  // Quick game matchmaking
   socket.on("quick_game", (data: { nickname: string }) => {
     const { nickname } = data;
-    if (!nickname) {
-      socket.emit("room_error", { message: "Missing nickname." });
-      return;
-    }
-    // Try to find an open room
-    let roomId = findOpenRoom();
+    const roomId = roomManager.quickGame(socket, nickname);
+
     if (roomId) {
-      // Join existing open room
-      addPlayerToRoom(socket, roomId, nickname);
-      // Send room_created if player is first in room, else rely on player_joined
-      socket.emit("room_created", {
-        roomId,
-        players: rooms[roomId].players,
-        config: rooms[roomId].config,
-      });
-      return;
+      console.log(
+        `Quick game: Player ${nickname} joined/created room ${roomId}`
+      );
     }
-    // No open room, create a new one
-    const numPlayers = Math.floor(Math.random() * 5) + 2; // 2-6 players
-    const timePerPlayer = 15;
-    roomId = generateRoomCode();
-    rooms[roomId] = {
-      players: [{ id: socket.id, nickname }],
-      config: { numPlayers, timePerPlayer },
-      gameState: "waiting",
-      createdAt: new Date(),
-    };
-    playerRooms[socket.id] = roomId;
-    socket.join(roomId);
-    socket.emit("room_created", {
-      roomId,
-      players: rooms[roomId].players,
-      config: rooms[roomId].config,
-    });
-    console.log(`Quick game: Room ${roomId} created by ${nickname}`);
   });
 
-  // Join an existing room by roomId
   socket.on("join_room", (data: { roomId: string; nickname: string }) => {
     const { roomId, nickname } = data;
-    const room = rooms[roomId];
-    if (!room) {
-      socket.emit("room_error", { message: "Room not found." });
-      return;
+    const success = roomManager.joinRoom(socket, roomId, nickname);
+
+    if (success) {
+      console.log(`Player ${nickname} joined room ${roomId}`);
     }
-    if (room.players.length >= room.config.numPlayers) {
-      socket.emit("room_error", { message: "Room is full." });
-      return;
-    }
-    if (room.gameState !== "waiting") {
-      socket.emit("room_error", { message: "Game already started." });
-      return;
-    }
-    addPlayerToRoom(socket, roomId, nickname);
   });
 
-  // Get room state (for clients to check if game already started)
   socket.on(
     "get_room_state",
     (data: { roomId: string }, callback: (result: any) => void) => {
       const { roomId } = data;
-      const room = rooms[roomId];
+      const room = roomManager.getRoomState(roomId);
+
       if (!room) {
         callback({ error: "Room not found." });
         return;
       }
+
       callback({
         roomId,
         players: room.players,
@@ -222,22 +96,76 @@ io.on("connection", (socket: Socket) => {
     }
   );
 
-  // Explicit leave room event
   socket.on("leave_room", () => {
-    const roomId = playerRooms[socket.id];
-    if (!roomId) return;
-    removePlayerFromRoom(socket, roomId);
-    delete playerRooms[socket.id];
-    console.log(`Player ${socket.id} left room ${roomId} (explicit leave)`);
+    const roomId = roomManager.getPlayerRoom(socket.id);
+    roomManager.leaveRoom(socket);
+
+    if (roomId) {
+      // Clean up game if room becomes empty
+      const room = roomManager.getRoomState(roomId);
+      if (!room) {
+        gameManager.cleanupGame(roomId);
+      }
+    }
+  });
+
+  // Game events
+  socket.on("draw_card", () => {
+    const roomId = roomManager.getPlayerRoom(socket.id);
+    if (roomId) {
+      const success = gameManager.drawCard(roomId, socket.id);
+      if (!success) {
+        socket.emit("game_error", {
+          message: "Cannot draw card at this time.",
+        });
+      }
+    }
+  });
+
+  socket.on("play_cards", (data: { cardIndices: number[] }) => {
+    const { cardIndices } = data;
+    const roomId = roomManager.getPlayerRoom(socket.id);
+
+    if (roomId) {
+      const success = gameManager.playCards(roomId, socket.id, cardIndices);
+      if (!success) {
+        socket.emit("game_error", { message: "Invalid play." });
+      }
+    }
+  });
+
+  socket.on("call_yaniv", () => {
+    const roomId = roomManager.getPlayerRoom(socket.id);
+    if (roomId) {
+      // TODO: Implement Yaniv calling logic
+      console.log(`Player ${socket.id} called Yaniv in room ${roomId}`);
+    }
   });
 
   // Handle disconnects
   socket.on("disconnect", () => {
-    const roomId = playerRooms[socket.id];
-    if (!roomId) return;
-    removePlayerFromRoom(socket, roomId);
-    delete playerRooms[socket.id];
-    console.log(`Player ${socket.id} left room ${roomId} (disconnect)`);
+    console.log(`Player disconnected: ${socket.id}`);
+    const roomId = roomManager.getPlayerRoom(socket.id);
+
+    roomManager.handleDisconnect(socket);
+
+    if (roomId) {
+      // Clean up game if room becomes empty
+      const room = roomManager.getRoomState(roomId);
+      if (!room) {
+        gameManager.cleanupGame(roomId);
+      }
+    }
+  });
+
+  socket.on("start_game", (data: { roomId: string }) => {
+    console.log("hello", data);
+    const { roomId } = data;
+    const room = roomManager.getRoomState(roomId);
+
+    if (room && room.gameState === "started") {
+      gameManager.startGame(roomId);
+    }
   });
 });
 

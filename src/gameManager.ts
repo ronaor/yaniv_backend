@@ -57,11 +57,13 @@ export class GameManager {
     // Deal initial cards to players (7 cards each for Yaniv)
     const cardsPerPlayer = 7;
     room.players.forEach((player) => {
-      gameState.playerHands[player.id] = [];
-      for (let i = 0; i < cardsPerPlayer; i++) {
-        const card = gameState.deck.pop();
-        if (card) {
-          gameState.playerHands[player.id].push(card);
+      if (player) {
+        gameState.playerHands[player.id] = [];
+        for (let i = 0; i < cardsPerPlayer; i++) {
+          const card = gameState.deck.pop();
+          if (card) {
+            gameState.playerHands[player.id].push(card);
+          }
         }
       }
     });
@@ -125,10 +127,12 @@ export class GameManager {
     game.turnStartTime = new Date();
     const currentPlayer = room.players[game.currentPlayer];
 
-    this.io.to(roomId).emit("turn_started", {
-      currentPlayerId: currentPlayer.id,
-      timeRemaining: room.config.timePerPlayer,
-    });
+    if (currentPlayer) {
+      this.io.to(roomId).emit("turn_started", {
+        currentPlayerId: currentPlayer.id,
+        timeRemaining: room.config.timePerPlayer,
+      });
+    }
 
     // Set NEW timeout for turn and SAVE IT
     game.turnTimer = setTimeout(() => {
@@ -147,8 +151,11 @@ export class GameManager {
     game.turnTimer = undefined;
 
     // Force draw a card and end turn
-    this.drawCard(roomId, room.players[game.currentPlayer].id, true);
-    this.nextTurn(roomId);
+    const currentPlayer = room.players[game.currentPlayer];
+    if (currentPlayer) {
+      this.drawCard(roomId, currentPlayer.id, true);
+      this.nextTurn(roomId);
+    }
   }
 
   // Move to next player's turn
@@ -176,7 +183,7 @@ export class GameManager {
     if (!game || !room || game.gameEnded) return false;
 
     // Check if it's player's turn (unless forced)
-    if (!forced && room.players[game.currentPlayer].id !== playerId) {
+    if (!forced && room.players[game.currentPlayer]?.id !== playerId) {
       return false;
     }
 
@@ -237,7 +244,7 @@ export class GameManager {
     if (!game || !room || game.gameEnded) return false;
 
     // Check if it's player's turn
-    if (room.players[game.currentPlayer].id !== playerId) {
+    if (room.players[game.currentPlayer]?.id !== playerId) {
       return false;
     }
 

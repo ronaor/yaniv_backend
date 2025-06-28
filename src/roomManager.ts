@@ -12,7 +12,7 @@ export interface RoomConfig {
 }
 
 export interface Room {
-  players: Player[];
+  players: (Player | undefined)[];
   config: RoomConfig;
   gameState: "waiting" | "started";
   createdAt: Date;
@@ -173,7 +173,7 @@ export class RoomManager {
     }
 
     // Prevent duplicate join
-    if (!room.players.some((p) => p.id === socket.id)) {
+    if (!room.players.some((p) => p?.id === socket.id)) {
       room.players.push({ id: socket.id, nickname });
     }
 
@@ -205,7 +205,7 @@ export class RoomManager {
     const room = this.rooms[roomId];
     if (!room) return;
 
-    room.players = room.players.filter((p) => p.id !== socket.id);
+    room.players = room.players.filter((p) => p?.id !== socket.id);
     this.io.to(roomId).emit("player_left", { players: room.players });
     socket.leave(roomId);
 

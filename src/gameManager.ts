@@ -373,13 +373,11 @@ export class GameManager {
 
     const playersScores = room.players.map((p) =>
       p
-        ? p.id === winnerId
+        ? p.id === yanivCaller && yanivCaller === winnerId
           ? 0
           : this.getHandValue(game.playerHands[p.id])
         : Infinity
     );
-
-    let yanivCallerDelayedScore: number | undefined = undefined;
 
     if (yanivCaller !== winnerId) {
       playersScores[yanivCaller] += 30;
@@ -387,7 +385,7 @@ export class GameManager {
         playersScores[yanivCaller] % 50 === 0 &&
         playersScores[yanivCaller] > 50
       ) {
-        yanivCallerDelayedScore = playersScores[yanivCaller] - 50;
+        playersScores[yanivCaller] = -50;
       }
     }
 
@@ -396,7 +394,6 @@ export class GameManager {
       playersScores,
       lowestValue: game.playerHands[winnerId],
       yanivCaller,
-      yanivCallerDelayedScore,
       assafCaller,
       playerHands: game.playerHands,
     });

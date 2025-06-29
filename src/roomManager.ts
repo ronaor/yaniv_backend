@@ -117,7 +117,7 @@ export class RoomManager {
     }
 
     // No open room, create a new one
-    const numPlayers = 2; //Math.floor(Math.random() * 5) + 2; // 2-6 players
+    const numPlayers = Math.floor(Math.random() * 5) + 2; // 2-6 players
     const timePerPlayer = 15;
     roomId = this.generateRoomCode();
 

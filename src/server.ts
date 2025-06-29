@@ -146,18 +146,6 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
-  socket.on("call_assaf", () => {
-    const roomId = roomManager.getPlayerRoom(socket.id);
-    if (roomId) {
-      const success = gameManager.callAssaf(roomId, socket.id);
-      if (!success) {
-        socket.emit("game_error", {
-          message: "Cannot call Yaniv at this time.",
-        });
-      }
-    }
-  });
-
   // Handle disconnects
   socket.on("disconnect", () => {
     console.log(`Player disconnected: ${socket.id}`);

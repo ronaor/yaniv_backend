@@ -6,18 +6,38 @@ import { RoomManager, Player, Room } from "./roomManager";
 export interface Card {
   suit: "hearts" | "diamonds" | "clubs" | "spades";
   value: number; // 1-13 (1=Ace, 11=Jack, 12=Queen, 13=King)
+  isJoker?: boolean; // Mark jokers
 }
 
 export interface GameState {
-  currentPlayer: number; // Index in players array
+  currentPlayer: number;
   deck: Card[];
-  discardPile: Card[];
+  lastPlayedCards: Card[]; // Track what was played last turn for pickup rules
   playerHands: { [playerId: string]: Card[] };
   gameStartTime: Date;
   turnStartTime: Date;
   gameEnded: boolean;
   winner?: string;
-  turnTimer?: NodeJS.Timeout; // ADD THIS - לשמירת ה-timer
+  turnTimer?: NodeJS.Timeout;
+  timePerPlayer: number;
+}
+
+function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
+  const remainingCards = [...cards]; // Create a copy to avoid mutating original
+
+  selectedCards.forEach((selectedCard) => {
+    // Find the first matching card in remainingCards
+    const index = remainingCards.findIndex(
+      (card) =>
+        card.suit === selectedCard.suit && card.value === selectedCard.value
+    );
+
+    if (index !== -1) {
+      remainingCards.splice(index, 1); // Remove exactly one card
+    }
+  });
+
+  return remainingCards;
 }
 
 export class GameManager {
@@ -30,36 +50,37 @@ export class GameManager {
     this.roomManager = roomManager;
   }
 
-  // Initialize a new game when room becomes full
   startGame(roomId: string): boolean {
     const room = this.roomManager.getRoomState(roomId);
-    console.log("0", room);
     if (!room || room.gameState !== "started") {
       return false;
     }
 
-    console.log("1");
-    // Create initial game state
+    const deck = this.createDeck();
+    // Place first card on discard pile
+    const firstCard = deck.pop();
+
     const gameState: GameState = {
       currentPlayer: 0,
-      deck: this.createDeck(),
-      discardPile: [],
+      deck,
+      lastPlayedCards: firstCard ? [firstCard] : [],
       playerHands: {},
       gameStartTime: new Date(),
       turnStartTime: new Date(),
       gameEnded: false,
-      turnTimer: undefined, // Initialize timer
+      turnTimer: undefined,
+      timePerPlayer: room.config.timePerPlayer,
     };
 
-    // Shuffle deck
+    this.games[roomId] = gameState;
+
     this.shuffleDeck(gameState.deck);
 
-    // Deal initial cards to players (7 cards each for Yaniv)
-    const cardsPerPlayer = 7;
+    // Deal 5 cards to each player
     room.players.forEach((player) => {
       if (player) {
         gameState.playerHands[player.id] = [];
-        for (let i = 0; i < cardsPerPlayer; i++) {
+        for (let i = 0; i < 5; i++) {
           const card = gameState.deck.pop();
           if (card) {
             gameState.playerHands[player.id].push(card);
@@ -68,42 +89,48 @@ export class GameManager {
       }
     });
 
-    // Place first card on discard pile
-    const firstCard = gameState.deck.pop();
-    if (firstCard) {
-      gameState.discardPile.push(firstCard);
-    }
-
-    this.games[roomId] = gameState;
-
-    // Notify all players that game has started with initial state
     this.io.to(roomId).emit("game_initialized", {
       gameState: this.getPublicGameState(roomId),
       playerHands: this.getPlayerHands(roomId),
+      firstCard,
     });
 
-    // Start first player's turn
     this.startPlayerTurn(roomId);
-
-    console.log(`Game initialized in room ${roomId}`);
     return true;
   }
 
-  // Create a standard 52-card deck
+  // Create deck with 52 cards + 2 jokers
   private createDeck(): Card[] {
     const suits: Card["suit"][] = ["hearts", "diamonds", "clubs", "spades"];
     const deck: Card[] = [];
 
+    // Regular cards
     suits.forEach((suit) => {
       for (let value = 1; value <= 13; value++) {
         deck.push({ suit, value });
       }
     });
 
+    // Add 2 jokers (marked as special cards)
+    deck.push({ suit: "hearts", value: 0, isJoker: true });
+    deck.push({ suit: "spades", value: 0, isJoker: true });
+
     return deck;
   }
 
-  // Shuffle deck using Fisher-Yates algorithm
+  // Calculate card value for scoring
+  private getCardValue(card: Card): number {
+    if (card.isJoker) return 0;
+    if (card.value === 1) return 1; // Ace = 1
+    if (card.value >= 11) return 10; // J, Q, K = 10
+    return card.value; // 2-10 = face value
+  }
+
+  // Calculate hand total
+  private getHandValue(hand: Card[]): number {
+    return hand.reduce((sum, card) => sum + this.getCardValue(card), 0);
+  }
+
   private shuffleDeck(deck: Card[]): void {
     for (let i = deck.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -111,14 +138,12 @@ export class GameManager {
     }
   }
 
-  // Start a player's turn
   private startPlayerTurn(roomId: string): void {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
     if (!game || !room) return;
 
-    // CLEAR EXISTING TIMER FIRST!
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
@@ -130,197 +155,307 @@ export class GameManager {
     if (currentPlayer) {
       this.io.to(roomId).emit("turn_started", {
         currentPlayerId: currentPlayer.id,
-        timeRemaining: room.config.timePerPlayer,
+        timeRemaining: game.timePerPlayer,
       });
-    }
 
-    // Set NEW timeout for turn and SAVE IT
-    game.turnTimer = setTimeout(() => {
-      this.handleTurnTimeout(roomId);
-    }, room.config.timePerPlayer * 1000);
+      // Start turn timer
+      game.turnTimer = setTimeout(() => {
+        this.handleTurnTimeout(roomId);
+      }, game.timePerPlayer * 1000);
+    }
   }
 
-  // Handle turn timeout
   private handleTurnTimeout(roomId: string): void {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
     if (!game || !room || game.gameEnded) return;
 
-    // Clear the timer since it fired
     game.turnTimer = undefined;
-
-    // Force draw a card and end turn
     const currentPlayer = room.players[game.currentPlayer];
+
     if (currentPlayer) {
-      this.drawCard(roomId, currentPlayer.id, true);
-      this.nextTurn(roomId);
+      const pickedCard: Card[] = game.playerHands[currentPlayer.id].filter(
+        (card) =>
+          card.value >=
+          Math.max(
+            ...game.playerHands[currentPlayer.id].map((card) => card.value)
+          )
+      );
+      this.completeTurn(roomId, currentPlayer.id, "deck", [pickedCard[0]]);
     }
   }
 
-  // Move to next player's turn
+  // Complete turn by drawing (second part of turn)
+  completeTurn(
+    roomId: string,
+    playerId: string,
+    choice: "deck" | "pickup",
+    selectedCards: Card[],
+    pickupIndex?: number
+  ): boolean {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+
+    if (!game || !room) return false;
+    if (room.players[game.currentPlayer]?.id !== playerId) return false;
+
+    let success = false;
+
+    if (choice === "deck") {
+      success = this.drawFromDeck(roomId, playerId, selectedCards);
+    } else if (choice === "pickup" && pickupIndex !== undefined) {
+      success = this.pickupCard(roomId, playerId, pickupIndex, selectedCards);
+    }
+
+    if (success) {
+      this.nextTurn(roomId);
+    }
+
+    return success;
+  }
+
+  // Draw from deck
+  private drawFromDeck(
+    roomId: string,
+    playerId: string,
+    selectedCards: Card[]
+  ): boolean {
+    const game = this.games[roomId];
+    if (!game) return false;
+
+    if (game.deck.length === 0) {
+      this.reshuffleDiscardPile(roomId);
+    }
+
+    const card = game.deck.pop();
+
+    game.playerHands[playerId] = removeSelectedCards(
+      game.playerHands[playerId],
+      selectedCards
+    );
+    game.lastPlayedCards = selectedCards;
+
+    if (card) {
+      game.playerHands[playerId].push(card);
+      this.io.to(roomId).emit("player_drew", {
+        playerId,
+        source: "deck",
+        cardsInDeck: game.deck.length,
+        hands: game.playerHands[playerId],
+        lastPlayedCards: game.lastPlayedCards,
+      });
+
+      return true;
+    }
+    return false;
+  }
+
+  // Pick up card from last played cards
+  private pickupCard(
+    roomId: string,
+    playerId: string,
+    cardIndex: number,
+    selectedCards: Card[]
+  ): boolean {
+    const game = this.games[roomId];
+    if (!game) return false;
+
+    const pickupOptions = this.getPickupOptions(roomId);
+
+    console.log("pickupOptions", pickupOptions);
+    if (cardIndex < 0 || cardIndex >= pickupOptions.length) return false;
+
+    const cardToPick = pickupOptions[cardIndex];
+
+    game.playerHands[playerId] = [
+      ...removeSelectedCards(game.playerHands[playerId], selectedCards),
+      cardToPick,
+    ];
+
+    console.log("selectedCards", selectedCards, "cardToPick", cardToPick);
+
+    game.lastPlayedCards = selectedCards;
+    this.io.to(roomId).emit("player_drew", {
+      playerId,
+      source: "pickup",
+      card: cardToPick,
+      hands: game.playerHands[playerId],
+      lastPlayedCards: game.lastPlayedCards,
+    });
+
+    return true;
+  }
+
+  // Get cards available for pickup based on last play
+  private getPickupOptions(roomId: string): Card[] {
+    const game = this.games[roomId];
+    if (!game || game.lastPlayedCards.length === 0) return [];
+
+    const lastPlay = game.lastPlayedCards;
+
+    // Single card - can pick it up
+    if (lastPlay.length === 1) {
+      return [lastPlay[0]];
+    }
+
+    // Check if it's a set or sequence
+    if (this.isValidSet(lastPlay)) {
+      // Set - can pick any card
+      return [...lastPlay];
+    }
+
+    if (this.isValidSequence(lastPlay)) {
+      // Sequence - can only pick first or last card
+      return [lastPlay[0], lastPlay[lastPlay.length - 1]];
+    }
+
+    return [];
+  }
+
+  // Call Yaniv
+  callYaniv(roomId: string, playerId: string): boolean {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+
+    if (!game || !room || game.gameEnded) return false;
+    if (room.players[game.currentPlayer]?.id !== playerId) return false;
+
+    const playerHand = game.playerHands[playerId];
+    const handValue = this.getHandValue(playerHand);
+
+    // Can only call Yaniv with 7 points or less
+    if (handValue > 7) {
+      this.io.to(playerId).emit("game_error", {
+        message: `Cannot call Yaniv with ${handValue} points. Maximum is 7.`,
+      });
+      return false;
+    }
+
+    this.endRound(roomId, playerId);
+    return true;
+  }
+
+  // End round due to Yaniv call
+  private endRound(roomId: string, yanivCallerId: string): void {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+
+    if (!game || !room) return;
+
+    if (game.turnTimer) {
+      clearTimeout(game.turnTimer);
+      game.turnTimer = undefined;
+    }
+
+    // Calculate all hand values
+    const handValues: { [playerId: string]: number } = {};
+    Object.entries(game.playerHands).forEach(([playerId, hand]) => {
+      handValues[playerId] = this.getHandValue(hand);
+    });
+
+    const yanivCallerValue = handValues[yanivCallerId];
+    let lowestValue = yanivCallerValue;
+    let hasAsaf = false;
+    let asafPlayers: string[] = [];
+
+    // Check for Asaf
+    Object.entries(handValues).forEach(([playerId, value]) => {
+      if (playerId !== yanivCallerId && value <= yanivCallerValue) {
+        hasAsaf = true;
+        if (value < lowestValue) {
+          lowestValue = value;
+          asafPlayers = [playerId];
+        } else if (value === lowestValue) {
+          asafPlayers.push(playerId);
+        }
+      }
+    });
+
+    this.io.to(roomId).emit("round_ended", {
+      yanivCaller: yanivCallerId,
+      yanivCallerValue,
+      handValues,
+      hasAsaf,
+      asafPlayers,
+      lowestValue,
+    });
+
+    console.log(`Round ended. Yaniv: ${yanivCallerId}, Asaf: ${hasAsaf}`);
+  }
+
+  // Validate card play
+  private isValidPlay(cards: Card[]): boolean {
+    if (cards.length === 0) return false;
+    if (cards.length === 1) return true;
+
+    return this.isValidSet(cards) || this.isValidSequence(cards);
+  }
+
+  // Check if cards form a valid set (same value)
+  private isValidSet(cards: Card[]): boolean {
+    if (cards.length < 2) return false;
+
+    const nonJokers = cards.filter((c) => !c.isJoker);
+    if (nonJokers.length === 0) return false;
+
+    const targetValue = nonJokers[0].value;
+    return nonJokers.every((card) => card.value === targetValue);
+  }
+
+  // Check if cards form a valid sequence (consecutive same suit)
+  private isValidSequence(cards: Card[]): boolean {
+    if (cards.length < 3) return false;
+
+    const realCards = cards.filter((c) => !c.isJoker);
+    const jokerCount = cards.length - realCards.length;
+
+    if (realCards.length === 0) return false;
+
+    // All real cards must be same suit
+    const suit = realCards[0].suit;
+    if (!realCards.every((card) => card.suit === suit)) return false;
+
+    // Sort real cards by value
+    const sortedValues = realCards.map((c) => c.value).sort((a, b) => a - b);
+
+    // Check if sequence is possible with jokers
+    let gapsNeeded = 0;
+    for (let i = 0; i < sortedValues.length - 1; i++) {
+      gapsNeeded += sortedValues[i + 1] - sortedValues[i] - 1;
+    }
+
+    return gapsNeeded <= jokerCount;
+  }
+
+  private reshuffleDiscardPile(roomId: string): void {
+    const game = this.games[roomId];
+    const topCard = game.lastPlayedCards.pop();
+    this.shuffleDeck(game.deck);
+    game.lastPlayedCards = topCard ? [topCard] : [];
+    this.io.to(roomId).emit("deck_reshuffled");
+  }
+
   private nextTurn(roomId: string): void {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
     if (!game || !room || game.gameEnded) return;
 
-    // CLEAR TIMER when manually moving to next turn
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
     }
 
     game.currentPlayer = (game.currentPlayer + 1) % room.players.length;
+
     this.startPlayerTurn(roomId);
   }
 
-  // Handle player drawing a card
-  drawCard(roomId: string, playerId: string, forced = false): boolean {
-    const game = this.games[roomId];
-    const room = this.roomManager.getRoomState(roomId);
-
-    if (!game || !room || game.gameEnded) return false;
-
-    // Check if it's player's turn (unless forced)
-    if (!forced && room.players[game.currentPlayer]?.id !== playerId) {
-      return false;
-    }
-
-    // Draw from deck or reshuffle discard pile if deck is empty
-    if (game.deck.length === 0) {
-      this.reshuffleDiscardPile(roomId);
-    }
-
-    const card = game.deck.pop();
-    if (card) {
-      game.playerHands[playerId].push(card);
-
-      // Notify player of new card
-      this.io.to(playerId).emit("card_drawn", { card });
-
-      // Notify others that player drew a card
-      this.io.to(roomId).emit("player_drew_card", {
-        playerId,
-        cardsRemaining: game.deck.length,
-      });
-
-      // If not forced (player chose to draw), end turn
-      if (!forced) {
-        this.nextTurn(roomId);
-      }
-
-      return true;
-    }
-
-    return false;
-  }
-
-  // Reshuffle discard pile back into deck
-  private reshuffleDiscardPile(roomId: string): void {
-    const game = this.games[roomId];
-    if (!game || game.discardPile.length <= 1) return;
-
-    // Keep top card on discard pile
-    const topCard = game.discardPile.pop();
-
-    // Move rest to deck and shuffle
-    game.deck = [...game.discardPile];
-    this.shuffleDeck(game.deck);
-
-    // Reset discard pile with top card
-    game.discardPile = topCard ? [topCard] : [];
-
-    this.io.to(roomId).emit("deck_reshuffled", {
-      cardsInDeck: game.deck.length,
-    });
-  }
-
-  // Handle player playing cards
-  playCards(roomId: string, playerId: string, cardIndices: number[]): boolean {
-    const game = this.games[roomId];
-    const room = this.roomManager.getRoomState(roomId);
-
-    if (!game || !room || game.gameEnded) return false;
-
-    // Check if it's player's turn
-    if (room.players[game.currentPlayer]?.id !== playerId) {
-      return false;
-    }
-
-    const playerHand = game.playerHands[playerId];
-    if (!playerHand || cardIndices.some((i) => i >= playerHand.length)) {
-      return false;
-    }
-
-    // Get cards to play
-    const cardsToPlay = cardIndices.map((i) => playerHand[i]);
-
-    // Validate play (implement Yaniv rules here)
-    if (!this.isValidPlay(cardsToPlay, game.discardPile)) {
-      return false;
-    }
-
-    // Remove cards from hand
-    cardIndices.sort((a, b) => b - a); // Sort descending to remove from end first
-    cardIndices.forEach((i) => playerHand.splice(i, 1));
-
-    // Add cards to discard pile
-    game.discardPile.push(...cardsToPlay);
-
-    // Notify all players
-    this.io.to(roomId).emit("cards_played", {
-      playerId,
-      cards: cardsToPlay,
-      remainingCards: playerHand.length,
-    });
-
-    // Check if player won
-    if (playerHand.length === 0) {
-      this.endGame(roomId, playerId);
-      return true;
-    }
-
-    // Move to next turn
-    this.nextTurn(roomId);
-    return true;
-  }
-
-  // Validate if a play is legal according to Yaniv rules
-  private isValidPlay(cards: Card[], discardPile: Card[]): boolean {
-    if (cards.length === 0) return false;
-
-    // Single card is always valid
-    if (cards.length === 1) return true;
-
-    // Multiple cards must be same value or sequential same suit
-    const firstCard = cards[0];
-
-    // Same value check
-    if (cards.every((card) => card.value === firstCard.value)) {
-      return true;
-    }
-
-    // Sequential same suit check
-    if (cards.every((card) => card.suit === firstCard.suit)) {
-      const sortedValues = cards.map((c) => c.value).sort((a, b) => a - b);
-      for (let i = 1; i < sortedValues.length; i++) {
-        if (sortedValues[i] !== sortedValues[i - 1] + 1) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    return false;
-  }
-
-  // End the game
   private endGame(roomId: string, winnerId: string): void {
     const game = this.games[roomId];
     if (!game) return;
 
-    // CLEAR TIMER when game ends
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
@@ -333,45 +468,35 @@ export class GameManager {
       winner: winnerId,
       finalScores: this.calculateFinalScores(roomId),
     });
-
-    console.log(`Game ended in room ${roomId}, winner: ${winnerId}`);
   }
 
-  // Calculate final scores
   private calculateFinalScores(roomId: string): { [playerId: string]: number } {
     const game = this.games[roomId];
     if (!game) return {};
 
     const scores: { [playerId: string]: number } = {};
-
     Object.entries(game.playerHands).forEach(([playerId, hand]) => {
-      scores[playerId] = hand.reduce((sum, card) => {
-        // Aces = 1, Face cards = 10, others = face value
-        const value = card.value === 1 ? 1 : card.value > 10 ? 10 : card.value;
-        return sum + value;
-      }, 0);
+      scores[playerId] = this.getHandValue(hand);
     });
 
     return scores;
   }
 
-  // Get public game state (without private information)
   private getPublicGameState(roomId: string) {
     const game = this.games[roomId];
     if (!game) return null;
 
     return {
       currentPlayer: game.currentPlayer,
-      discardPile: game.discardPile,
       cardsInDeck: game.deck.length,
       gameStartTime: game.gameStartTime,
       turnStartTime: game.turnStartTime,
       gameEnded: game.gameEnded,
       winner: game.winner,
+      timePerPlayer: game.timePerPlayer,
     };
   }
 
-  // Get player hands for private distribution
   private getPlayerHands(roomId: string) {
     const game = this.games[roomId];
     if (!game) return {};
@@ -384,20 +509,14 @@ export class GameManager {
     return playerHands;
   }
 
-  // Clean up game when room is deleted
   cleanupGame(roomId: string): void {
     const game = this.games[roomId];
-
-    // CLEAR TIMER when cleaning up
     if (game?.turnTimer) {
       clearTimeout(game.turnTimer);
     }
-
     delete this.games[roomId];
-    console.log(`Game cleanup completed for room ${roomId}`);
   }
 
-  // Get game state for a room
   getGameState(roomId: string): GameState | null {
     return this.games[roomId] || null;
   }

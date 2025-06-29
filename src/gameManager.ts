@@ -20,7 +20,11 @@ export interface GameState {
   winner?: string;
   turnTimer?: NodeJS.Timeout;
   timePerPlayer: number;
+  yanivCalleeId?: string;
+  callValue?: number;
 }
+
+const TIME_FOR_SHOUT = 10; //seconds
 
 function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
   const remainingCards = [...cards]; // Create a copy to avoid mutating original
@@ -93,6 +97,7 @@ export class GameManager {
       gameState: this.getPublicGameState(roomId),
       playerHands: this.getPlayerHands(roomId),
       firstCard,
+      users: room.players,
     });
 
     this.startPlayerTurn(roomId);
@@ -263,7 +268,6 @@ export class GameManager {
 
     const pickupOptions = this.getPickupOptions(roomId);
 
-    console.log("pickupOptions", pickupOptions);
     if (cardIndex < 0 || cardIndex >= pickupOptions.length) return false;
 
     const cardToPick = pickupOptions[cardIndex];
@@ -272,8 +276,6 @@ export class GameManager {
       ...removeSelectedCards(game.playerHands[playerId], selectedCards),
       cardToPick,
     ];
-
-    console.log("selectedCards", selectedCards, "cardToPick", cardToPick);
 
     game.lastPlayedCards = selectedCards;
     this.io.to(roomId).emit("player_drew", {
@@ -332,64 +334,110 @@ export class GameManager {
       return false;
     }
 
-    this.endRound(roomId, playerId);
+    this.games[roomId].callValue = handValue;
+    if (game.turnTimer) {
+      clearTimeout(game.turnTimer);
+      game.turnTimer = undefined;
+    }
+    game.turnStartTime = new Date();
+    game.turnTimer = setTimeout(() => {
+      this.endRound(roomId, playerId);
+    }, TIME_FOR_SHOUT * 1000);
+
+    this.io.to(roomId).emit("yaniv", {
+      playerId,
+      handValue,
+    });
+
     return true;
   }
 
-  // End round due to Yaniv call
-  private endRound(roomId: string, yanivCallerId: string): void {
+  // Call Assaf
+  callAssaf(roomId: string, playerId: string): boolean {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room) return;
+    console.log("assaf!!", game.callValue);
+
+    if (!game || !room || game.gameEnded || !game.callValue) return false;
+
+    const playerHand = game.playerHands[playerId];
+    const handValue = this.getHandValue(playerHand);
+
+    console.log("assaf called", game.callValue);
+
+    // Can only call Yaniv with 7 points or less
+    if (handValue >= game.callValue) {
+      this.io.to(playerId).emit("game_error", {
+        message: `Cannot call Assaf with ${handValue} points. Maximum is ${game.callValue}.`,
+      });
+      return false;
+    }
 
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
     }
 
-    // Calculate all hand values
-    const handValues: { [playerId: string]: number } = {};
-    Object.entries(game.playerHands).forEach(([playerId, hand]) => {
-      handValues[playerId] = this.getHandValue(hand);
+    this.games[roomId].callValue = handValue;
+    game.turnStartTime = new Date();
+    game.turnTimer = setTimeout(() => {
+      this.endRound(roomId, playerId);
+    }, TIME_FOR_SHOUT * 1000);
+
+    this.io.to(roomId).emit("assaf", {
+      playerId,
+      handValue,
     });
 
-    const yanivCallerValue = handValues[yanivCallerId];
-    let lowestValue = yanivCallerValue;
-    let hasAsaf = false;
-    let asafPlayers: string[] = [];
-
-    // Check for Asaf
-    Object.entries(handValues).forEach(([playerId, value]) => {
-      if (playerId !== yanivCallerId && value <= yanivCallerValue) {
-        hasAsaf = true;
-        if (value < lowestValue) {
-          lowestValue = value;
-          asafPlayers = [playerId];
-        } else if (value === lowestValue) {
-          asafPlayers.push(playerId);
-        }
-      }
-    });
-
-    this.io.to(roomId).emit("round_ended", {
-      yanivCaller: yanivCallerId,
-      yanivCallerValue,
-      handValues,
-      hasAsaf,
-      asafPlayers,
-      lowestValue,
-    });
-
-    console.log(`Round ended. Yaniv: ${yanivCallerId}, Asaf: ${hasAsaf}`);
+    return true;
   }
 
-  // Validate card play
-  private isValidPlay(cards: Card[]): boolean {
-    if (cards.length === 0) return false;
-    if (cards.length === 1) return true;
+  // End round due to Yaniv call
+  private endRound(roomId: string, winnerId: string): void {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
 
-    return this.isValidSet(cards) || this.isValidSequence(cards);
+    if (!game || !room || !game.yanivCalleeId) return;
+
+    if (game.turnTimer) {
+      clearTimeout(game.turnTimer);
+      game.turnTimer = undefined;
+    }
+
+    const lowestValue = game.playerHands[winnerId];
+    game.playerHands[winnerId] = [];
+
+    const playersScores = room.players.map((p, i) =>
+      p ? this.getHandValue(game.playerHands[p.id]) : Infinity
+    );
+
+    let yanivCalleDelayedScore: number | undefined = undefined;
+
+    if (game.yanivCalleeId !== winnerId) {
+      playersScores[game.yanivCalleeId] += 30;
+      if (
+        playersScores[game.yanivCalleeId] % 50 === 0 &&
+        playersScores[game.yanivCalleeId] > 50
+      ) {
+        yanivCalleDelayedScore = playersScores[game.yanivCalleeId] - 50;
+      }
+    }
+
+    this.io.to(roomId).emit("round_ended", {
+      winnerId,
+      playersScores,
+      lowestValue,
+      yanivCalle:
+        yanivCalleDelayedScore && game.yanivCalleeId
+          ? {
+              realScore: yanivCalleDelayedScore,
+              id: game.yanivCalleeId,
+            }
+          : null,
+    });
+
+    console.log(`Round ended. winner: ${winnerId}`);
   }
 
   // Check if cards form a valid set (same value)

@@ -40,13 +40,27 @@ io.on("connection", (socket: Socket) => {
   // Room management events (unchanged)
   socket.on(
     "create_room",
-    (data: { nickname: string; numPlayers: number; timePerPlayer: number }) => {
-      const { nickname, numPlayers, timePerPlayer } = data;
+    (data: {
+      nickname: string;
+      slapDown: boolean;
+      timePerPlayer: string;
+      canCallYaniv: string;
+      maxMatchPoints: string;
+    }) => {
+      const {
+        nickname,
+        slapDown,
+        timePerPlayer,
+        canCallYaniv,
+        maxMatchPoints,
+      } = data;
       const roomId = roomManager.createRoom(
         socket,
         nickname,
-        numPlayers,
-        timePerPlayer
+        slapDown,
+        timePerPlayer,
+        canCallYaniv,
+        maxMatchPoints
       );
 
       if (roomId) {
@@ -159,6 +173,11 @@ io.on("connection", (socket: Socket) => {
         gameManager.cleanupGame(roomId);
       }
     }
+  });
+
+  socket.on("start_private_game", (data: { roomId: string }) => {
+    const { roomId } = data;
+    roomManager.startPrivateGame(socket, roomId);
   });
 
   socket.on("start_game", (data: { roomId: string }) => {

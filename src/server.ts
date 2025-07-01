@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import cors from "cors";
-import { RoomCallbacks, RoomManager } from "./roomManager";
+import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
 import { Card, GameManager } from "./gameManager";
 
 const app = express();
@@ -37,58 +37,58 @@ app.get("/", (req: Request, res: Response) => {
 io.on("connection", (socket: Socket) => {
   console.log(`Player connected: ${socket.id}`);
 
-  // Room management events (unchanged)
+  // create_room Room management events (unchanged)
+  socket.on("create_room", (data: { nickName: string; config: RoomConfig }) => {
+    const { nickName, config } = data;
+    const roomId = roomManager.createRoom(socket, nickName, config);
+
+    if (roomId) {
+      console.log(`Room ${roomId} created by ${nickName}`);
+    }
+  });
+
+  //quick_game
+  socket.on("quick_game", (data: { nickName: string }) => {
+    const { nickName } = data;
+    const roomId = roomManager.quickGame(socket, nickName);
+
+    if (roomId) {
+      console.log(
+        `Quick game: Player ${nickName} joined/created room ${roomId}`
+      );
+    }
+  });
+
+  //set_quick_game_config
   socket.on(
-    "create_room",
-    (data: {
-      nickname: string;
-      slapDown: boolean;
-      timePerPlayer: string;
-      canCallYaniv: string;
-      maxMatchPoints: string;
-    }) => {
-      const {
-        nickname,
-        slapDown,
-        timePerPlayer,
-        canCallYaniv,
-        maxMatchPoints,
-      } = data;
-      const roomId = roomManager.createRoom(
+    "set_quick_game_config",
+    (data: { roomId: string; nickName: string; config: RoomConfig }) => {
+      const { roomId, nickName, config } = data;
+
+      const success = roomManager.setQuickGameConfig(
         socket,
-        nickname,
-        slapDown,
-        timePerPlayer,
-        canCallYaniv,
-        maxMatchPoints
+        roomId,
+        nickName,
+        config
       );
 
-      if (roomId) {
-        console.log(`Room ${roomId} created by ${nickname}`);
+      if (success) {
+        console.log(`Room config set successfully ${roomId}`);
       }
     }
   );
 
-  socket.on("quick_game", (data: { nickname: string }) => {
-    const { nickname } = data;
-    const roomId = roomManager.quickGame(socket, nickname);
-
-    if (roomId) {
-      console.log(
-        `Quick game: Player ${nickname} joined/created room ${roomId}`
-      );
-    }
-  });
-
-  socket.on("join_room", (data: { roomId: string; nickname: string }) => {
-    const { roomId, nickname } = data;
-    const success = roomManager.joinRoom(socket, roomId, nickname);
+  //join_room
+  socket.on("join_room", (data: { roomId: string; nickName: string }) => {
+    const { roomId, nickName } = data;
+    const success = roomManager.joinRoom(socket, roomId, nickName);
 
     if (success) {
-      console.log(`Player ${nickname} joined room ${roomId}`);
+      console.log(`Player ${nickName} joined room ${roomId}`);
     }
   });
 
+  //get_room_state
   socket.on(
     "get_room_state",
     (data: { roomId: string }, callback: (result: any) => void) => {
@@ -109,9 +109,10 @@ io.on("connection", (socket: Socket) => {
     }
   );
 
-  socket.on("leave_room", () => {
+  //leave_room
+  socket.on("leave_room", (data: { nickName: string }) => {
     const roomId = roomManager.getPlayerRoom(socket.id);
-    roomManager.leaveRoom(socket);
+    roomManager.leaveRoom(socket, data.nickName);
 
     if (roomId) {
       const room = roomManager.getRoomState(roomId);
@@ -160,12 +161,12 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
-  // Handle disconnects
+  //disconnect Handle disconnects
   socket.on("disconnect", () => {
     console.log(`Player disconnected: ${socket.id}`);
     const roomId = roomManager.getPlayerRoom(socket.id);
 
-    roomManager.handleDisconnect(socket);
+    roomManager.handleDisconnect(socket, socket.id);
 
     if (roomId) {
       const room = roomManager.getRoomState(roomId);
@@ -175,11 +176,13 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
+  //start_private_game
   socket.on("start_private_game", (data: { roomId: string }) => {
     const { roomId } = data;
     roomManager.startPrivateGame(socket, roomId);
   });
 
+  //start_game
   socket.on("start_game", (data: { roomId: string }) => {
     console.log("Manual game start requested:", data);
     const { roomId } = data;

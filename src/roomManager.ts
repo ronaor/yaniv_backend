@@ -1,10 +1,10 @@
 import { Socket } from "socket.io";
 import { Server } from "socket.io";
-import { isUndefined } from "lodash";
+import { isEmpty, isUndefined } from "lodash";
 
 export interface Player {
   id: string;
-  nickname: string;
+  nickName: string;
 }
 
 export interface RoomConfig {
@@ -12,15 +12,15 @@ export interface RoomConfig {
   timePerPlayer: number; // in seconds
   canCallYaniv: number; // 0 or 1
   maxMatchPoints: number; // max points for a match
-  startMutch?: boolean; // Optional, used to start the game when room is private
 }
 
 export interface Room {
   players: (Player | undefined)[];
   config: RoomConfig;
+  votes: Record<string, RoomConfig>;
   gameState: "waiting" | "started";
   createdAt: Date;
-  canStartTheGameIn7Sec?: Date; // Optional, used to start the game when room is private
+  canStartTheGameIn10Sec?: Date; // Optional, used to start the game when room is private
 }
 
 export interface RoomCallbacks {
@@ -61,43 +61,174 @@ export class RoomManager {
     return null;
   }
 
+  private calculateMajorityConfig(votes) {
+    // ערכים דיפולטים במקרה של תיקו
+    const defaultConfig = {
+      slapDown: true,
+      timePerPlayer: 15,
+      canCallYaniv: 7,
+      maxMatchPoints: 100,
+    };
+
+    if (isEmpty(votes)) {
+      return defaultConfig;
+    }
+
+    const players = Object.keys(votes);
+    const totalPlayers = players.length;
+
+    // פונקציה לחישוב רוב קולות לשדה מסוים
+    function getMajorityValue(fieldName, defaultValue) {
+      const valueCount = {};
+
+      // ספירת כל הערכים
+      players.forEach((player) => {
+        const value = votes[player][fieldName];
+
+        if (value !== undefined && value !== null) {
+          const key = String(value); // המרה לסטרינג כדי לטפל גם במספרים וגם בבוליאנים
+          valueCount[key] = (valueCount[key] || 0) + 1;
+        }
+      });
+      // מציאת הערך עם הכי הרבה קולות
+
+      // מציאת הערך עם הכי הרבה קולות
+      let maxCount = 0;
+      let majorityValue = defaultValue;
+
+      for (const [value, count] of Object.entries(valueCount)) {
+        const countValue = count as number; // Type assertion
+        if (countValue > maxCount) {
+          maxCount = countValue;
+          // המרה חזרה לטיפוס המקורי
+          if (fieldName === "slapDown") {
+            majorityValue = value === "true";
+          } else {
+            majorityValue = parseInt(value);
+          }
+        }
+      }
+      // אם יש תיקו (אף ערך לא קיבל רוב), נחזיר את הערך הדיפולטי
+      if (maxCount <= totalPlayers / 2) {
+        return defaultValue;
+      }
+
+      return majorityValue;
+    }
+
+    // חישוב רוב קולות לכל שדה
+    const majorityConfig = {
+      slapDown: getMajorityValue("slapDown", defaultConfig.slapDown),
+      timePerPlayer: getMajorityValue(
+        "timePerPlayer",
+        defaultConfig.timePerPlayer
+      ),
+      canCallYaniv: getMajorityValue(
+        "canCallYaniv",
+        defaultConfig.canCallYaniv
+      ),
+      maxMatchPoints: getMajorityValue(
+        "maxMatchPoints",
+        defaultConfig.maxMatchPoints
+      ),
+    };
+
+    return majorityConfig;
+  }
+
+  private startGameTimers: Record<string, NodeJS.Timeout> = {};
+
+  private handleGameStartCountdown(roomId: string): void {
+    const room = this.rooms[roomId];
+    if (!room || room.gameState !== "waiting") return;
+
+    const playerCount = room.players.length;
+
+    // Cancel timer if room is empty or has only 1 player
+    if (playerCount < 2) {
+      if (this.startGameTimers[roomId]) {
+        clearTimeout(this.startGameTimers[roomId]);
+        delete this.startGameTimers[roomId];
+        console.log(
+          `Countdown canceled for room ${roomId} (not enough players)`
+        );
+      }
+      return;
+    }
+
+    let delay = 0;
+    if (playerCount === 2) delay = 15000;
+    else if (playerCount === 3) delay = 10000;
+    else if (playerCount >= 4) delay = 7000;
+
+    // Restart existing timer
+    if (this.startGameTimers[roomId]) {
+      clearTimeout(this.startGameTimers[roomId]);
+      delete this.startGameTimers[roomId];
+      console.log(`Restarting countdown for room ${roomId}`);
+    }
+
+    this.startGameTimers[roomId] = setTimeout(() => {
+      if (!isEmpty(room.votes)) {
+        room.config = this.calculateMajorityConfig(room.votes);
+        console.log("room.config", room.config);
+      }
+      room.gameState = "started";
+      this.io.to(roomId).emit("start_game", {
+        roomId,
+        config: room.config,
+        players: room.players,
+      });
+
+      this.callbacks.roomFullCallback(roomId);
+      console.log(`Game started in room ${roomId}`);
+      delete this.startGameTimers[roomId];
+    }, delay);
+
+    console.log(
+      `Countdown started for room ${roomId} with ${playerCount} players (${
+        delay / 1000
+      }s)`
+    );
+  }
+
   // Create a new room
   createRoom(
     socket: Socket,
-    nickname: string,
-    slapDown: boolean,
-    timePerPlayer: string,
-    canCallYaniv: string,
-    maxMatchPoints: string
+    nickName: string,
+    config: RoomConfig
   ): string | null {
-    if (
-      !nickname ||
-      !slapDown ||
-      !timePerPlayer ||
-      !canCallYaniv ||
-      !maxMatchPoints
-    ) {
-      socket.emit("room_error", { message: "Missing required fields." });
+    const { slapDown, timePerPlayer, canCallYaniv, maxMatchPoints } = config;
+
+    if (!nickName || !timePerPlayer || !canCallYaniv || !maxMatchPoints) {
+      socket.emit("room_error", {
+        message: "Missing required fields.",
+        nickName,
+        timePerPlayer,
+        canCallYaniv,
+        maxMatchPoints,
+      });
       return null;
     }
 
     // Remove from previous room if exists
     const prevRoomId = this.playerRooms[socket.id];
     if (prevRoomId) {
-      this.removePlayerFromRoom(socket, prevRoomId);
+      this.removePlayerFromRoom(socket, prevRoomId, nickName);
       delete this.playerRooms[socket.id];
     }
 
     const roomId = this.generateRoomCode();
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickname }],
+      players: [{ id: socket.id, nickName }],
       config: {
         slapDown,
-        timePerPlayer: parseInt(timePerPlayer),
-        canCallYaniv: parseInt(canCallYaniv),
-        maxMatchPoints: parseInt(maxMatchPoints),
+        timePerPlayer: timePerPlayer,
+        canCallYaniv: canCallYaniv,
+        maxMatchPoints: maxMatchPoints,
       },
       gameState: "waiting",
+      votes: {},
       createdAt: new Date(),
     };
 
@@ -110,45 +241,65 @@ export class RoomManager {
       config: this.rooms[roomId].config,
     });
 
-    console.log(`Room ${roomId} created by ${nickname}`);
+    console.log(`Room ${roomId} created by ${nickName}`);
     return roomId;
   }
 
+  //setQuickGameConfig
+  setQuickGameConfig(
+    socket: Socket,
+    roomId: string,
+    nickName: string,
+    config: RoomConfig
+  ): boolean {
+    const room = this.rooms[roomId];
+    room.votes[nickName] = config;
+
+    this.io.to(roomId).emit("votes_config", {
+      roomId,
+      players: room.players,
+      config: room.config,
+      votes: room.votes,
+    });
+    return true;
+  }
+
   // Quick game matchmaking
-  quickGame(socket: Socket, nickname: string): string | null {
-    if (!nickname) {
-      socket.emit("room_error", { message: "Missing nickname." });
+  quickGame(
+    socket: Socket,
+    nickName: string,
+    slapDown = true,
+    timePerPlayer = 15,
+    canCallYaniv = 7,
+    maxMatchPoints = 100
+  ): string | null {
+    if (!nickName) {
+      socket.emit("room_error", { message: "Missing nickName." });
       return null;
     }
 
     // Try to find an open room
     let roomId = this.findOpenRoom();
     if (roomId) {
-      console.log("DDDDD################ ", new Date());
       // Join existing open room
-      this.addPlayerToRoom(socket, roomId, nickname);
-      socket.emit("room_created", {
-        roomId,
-        players: this.rooms[roomId].players,
-        config: this.rooms[roomId].config,
-        canStartTheGameIn7Sec: new Date(),
-      });
+      this.addPlayerToPublicRoom(socket, roomId, nickName);
       return roomId;
     }
 
     // No open room, create a new one
-    const slapDown = true; // Default for quick game
-    const timePerPlayer = 15;
-    const canCallYaniv = 7; // Default for quick game
-    const maxMatchPoints = 100; // Default for quick game
-
     roomId = this.generateRoomCode();
 
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickname }],
-      config: { slapDown, timePerPlayer, canCallYaniv, maxMatchPoints },
+      players: [{ id: socket.id, nickName }],
+      config: {
+        slapDown,
+        timePerPlayer,
+        canCallYaniv,
+        maxMatchPoints,
+      },
       gameState: "waiting",
       createdAt: new Date(),
+      votes: {},
     };
 
     this.playerRooms[socket.id] = roomId;
@@ -160,19 +311,55 @@ export class RoomManager {
       config: this.rooms[roomId].config,
     });
 
-    console.log(`Quick game: Room ${roomId} created by ${nickname}`);
+    console.log(`Quick game: Room ${roomId} created by ${nickName}`);
     return roomId;
   }
 
+  addPlayerToPublicRoom(
+    socket: Socket,
+    roomId: string,
+    nickName: string
+  ): boolean {
+    const room = this.rooms[roomId];
+    if (!room) return false;
+
+    // Remove from previous room if exists
+    const prevRoomId = this.playerRooms[socket.id];
+    if (prevRoomId && prevRoomId !== roomId) {
+      this.removePlayerFromRoom(socket, prevRoomId, nickName);
+      delete this.playerRooms[socket.id];
+    }
+
+    // Prevent duplicate join
+    if (!room.players.some((p) => p?.id === socket.id)) {
+      room.players.push({ id: socket.id, nickName });
+    }
+
+    this.playerRooms[socket.id] = roomId;
+    socket.join(roomId);
+
+    this.io.to(roomId).emit("player_joined", {
+      roomId,
+      players: room.players,
+      config: room.config,
+    });
+
+    console.log(`Player ${nickName} joined room ${roomId}`);
+
+    this.handleGameStartCountdown(roomId); // NEW: Use shared timer logic
+
+    return true;
+  }
+
   // Join an existing room by roomId
-  joinRoom(socket: Socket, roomId: string, nickname: string): boolean {
+  joinRoom(socket: Socket, roomId: string, nickName: string): boolean {
     const room = this.rooms[roomId];
     console.log("🚀 ~ RoomManager ~ joinRoom ~ room:", room);
     if (!room) {
       socket.emit("room_error", { message: "Room not found." });
       return false;
     }
-    if (room.players.length >= 2) {
+    if (room.players.length >= 4) {
       socket.emit("room_error", { message: "Room is full." });
       return false;
     }
@@ -181,7 +368,7 @@ export class RoomManager {
       return false;
     }
 
-    return this.addPlayerToRoom(socket, roomId, nickname);
+    return this.addPlayerToRoom(socket, roomId, nickName);
   }
 
   // Start a private game when the admin requests it
@@ -209,56 +396,70 @@ export class RoomManager {
   }
 
   // Helper to add player to a room (used by join_room and quick_game)
-  addPlayerToRoom(socket: Socket, roomId: string, nickname: string): boolean {
+  addPlayerToRoom(socket: Socket, roomId: string, nickName: string): boolean {
     const room = this.rooms[roomId];
-    console.log("🚀  addPlayerToRoom ~ room:", room);
     if (!room) return false;
 
     // Remove from previous room if exists
     const prevRoomId = this.playerRooms[socket.id];
     if (prevRoomId && prevRoomId !== roomId) {
-      this.removePlayerFromRoom(socket, prevRoomId);
+      this.removePlayerFromRoom(socket, prevRoomId, nickName);
       delete this.playerRooms[socket.id];
     }
 
     // Prevent duplicate join
     if (!room.players.some((p) => p?.id === socket.id)) {
-      room.players.push({ id: socket.id, nickname });
+      room.players.push({ id: socket.id, nickName });
     }
 
     this.playerRooms[socket.id] = roomId;
     socket.join(roomId);
 
     this.io.to(roomId).emit("player_joined", {
+      roomId,
       players: room.players,
       config: room.config,
+      canStartTheGameIn10Sec: new Date(), //TODO
     });
 
-    console.log(`Player ${nickname} joined room ${roomId}`);
+    console.log(`Player ${nickName} joined room ${roomId}`);
     // If room is now full, start the game
-    if (room.players.length === 4) {
+    if (room.players.length === 3) {
       // Assuming max 4 players
-      console.log(`Room ${roomId} is full, starting game...`);
-      room.gameState = "started";
-      this.io.to(roomId).emit("start_game", {
-        roomId,
-        config: room.config,
-        players: room.players,
-      });
-      this.callbacks.roomFullCallback(roomId);
-      console.log(`Game started in room ${roomId}`);
+      setTimeout(() => {
+        if (!isEmpty(room.votes)) {
+          room.config = this.calculateMajorityConfig(room.votes);
+          console.log("room.config", room.config);
+        }
+        console.log(`Room ${roomId} is full, starting game in 10 seconds...`);
+
+        room.gameState = "started";
+        this.io.to(roomId).emit("start_game", {
+          roomId,
+          config: room.config,
+          players: room.players,
+        });
+        this.callbacks.roomFullCallback(roomId);
+        console.log(`Game started in room ${roomId}`);
+      }, 10000); // 10 seconds delay
     }
 
     return true;
   }
 
   // Remove player from room
-  removePlayerFromRoom(socket: Socket, roomId: string): void {
+  removePlayerFromRoom(socket: Socket, roomId: string, nickName: string): void {
     const room = this.rooms[roomId];
     if (!room) return;
 
     room.players = room.players.filter((p) => p?.id !== socket.id);
-    this.io.to(roomId).emit("player_left", { players: room.players });
+    console.log("room.votes", room.votes);
+    if (room.votes[nickName]) delete room.votes[nickName];
+    console.log("2", room.votes);
+
+    this.io
+      .to(roomId)
+      .emit("player_left", { players: room.players, votes: room.votes });
     socket.leave(roomId);
 
     if (room.players.length === 0) {
@@ -268,21 +469,31 @@ export class RoomManager {
   }
 
   // Leave room explicitly
-  leaveRoom(socket: Socket): void {
+  leaveRoom(socket: Socket, nickName: string): void {
     const roomId = this.playerRooms[socket.id];
+    console.log("🚀 ~ RoomManager ~ leaveRoom ~ socket.id:", socket.id);
     if (!roomId) return;
+    const room = this.rooms[roomId];
 
-    this.removePlayerFromRoom(socket, roomId);
+    this.removePlayerFromRoom(socket, roomId, nickName);
     delete this.playerRooms[socket.id];
     console.log(`Player ${socket.id} left room ${roomId} (explicit leave)`);
+
+    // Remove vote
+    // if (nickName && room.votes[nickName]) {
+    //   delete room.votes[nickName];
+    //   console.log(`Vote from ${nickName} removed from room ${roomId}`);
+    // }
+
+    this.handleGameStartCountdown(roomId); // Re-evaluate timer
   }
 
   // Handle disconnect
-  handleDisconnect(socket: Socket): void {
+  handleDisconnect(socket: Socket, nickName: string): void {
     const roomId = this.playerRooms[socket.id];
     if (!roomId) return;
 
-    this.removePlayerFromRoom(socket, roomId);
+    this.removePlayerFromRoom(socket, roomId, nickName);
     delete this.playerRooms[socket.id];
     console.log(`Player ${socket.id} left room ${roomId} (disconnect)`);
   }

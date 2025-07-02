@@ -1,6 +1,5 @@
-import { Socket } from "socket.io";
 import { Server } from "socket.io";
-import { RoomManager, Player, Room } from "./roomManager";
+import { RoomManager } from "./roomManager";
 
 // Game-specific interfaces
 export interface Card {
@@ -241,6 +240,7 @@ export class GameManager {
 
     if (card) {
       game.playerHands[playerId].push(card);
+      game.playerHands[playerId].sort((a, b) => a.value - b.value);
       this.io.to(roomId).emit("player_drew", {
         playerId,
         source: "deck",
@@ -262,9 +262,10 @@ export class GameManager {
     selectedCards: Card[]
   ): boolean {
     const game = this.games[roomId];
-    if (!game) return false;
+    if (!game || game.lastPlayedCards.length === 0) return false;
+    const lastPlay = game.lastPlayedCards;
 
-    const pickupOptions = this.getPickupOptions(roomId);
+    const pickupOptions = lastPlay;
 
     if (cardIndex < 0 || cardIndex >= pickupOptions.length) return false;
 
@@ -274,6 +275,7 @@ export class GameManager {
       ...removeSelectedCards(game.playerHands[playerId], selectedCards),
       cardToPick,
     ];
+    game.playerHands[playerId].sort((a, b) => a.value - b.value);
 
     game.lastPlayedCards = selectedCards;
     this.io.to(roomId).emit("player_drew", {
@@ -285,32 +287,6 @@ export class GameManager {
     });
 
     return true;
-  }
-
-  // Get cards available for pickup based on last play
-  private getPickupOptions(roomId: string): Card[] {
-    const game = this.games[roomId];
-    if (!game || game.lastPlayedCards.length === 0) return [];
-
-    const lastPlay = game.lastPlayedCards;
-
-    // Single card - can pick it up
-    if (lastPlay.length === 1) {
-      return [lastPlay[0]];
-    }
-
-    // Check if it's a set or sequence
-    if (this.isValidSet(lastPlay)) {
-      // Set - can pick any card
-      return [...lastPlay];
-    }
-
-    if (this.isValidSequence(lastPlay)) {
-      // Sequence - can only pick first or last card
-      return [lastPlay[0], lastPlay[lastPlay.length - 1]];
-    }
-
-    return [];
   }
 
   // Call Yaniv
@@ -399,17 +375,6 @@ export class GameManager {
     });
 
     console.log(`Round ended. winner: ${winnerId}`);
-  }
-
-  // Check if cards form a valid set (same value)
-  private isValidSet(cards: Card[]): boolean {
-    if (cards.length < 2) return false;
-
-    const nonJokers = cards.filter((c) => !c.isJoker);
-    if (nonJokers.length === 0) return false;
-
-    const targetValue = nonJokers[0].value;
-    return nonJokers.every((card) => card.value === targetValue);
   }
 
   // Check if cards form a valid sequence (consecutive same suit)
@@ -512,7 +477,9 @@ export class GameManager {
 
     const playerHands: { [playerId: string]: Card[] } = {};
     Object.entries(game.playerHands).forEach(([playerId, hand]) => {
-      playerHands[playerId] = hand;
+      // Sort cards by value ascending
+      const sortedHand = hand.slice().sort((a, b) => a.value - b.value);
+      playerHands[playerId] = sortedHand;
     });
 
     return playerHands;

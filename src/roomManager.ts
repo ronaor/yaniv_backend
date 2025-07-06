@@ -1,10 +1,10 @@
-import { Socket } from "socket.io";
-import { Server } from "socket.io";
 import { isEmpty, isUndefined } from "lodash";
+import { Server, Socket } from "socket.io";
 
 export interface Player {
   id: string;
   nickName: string;
+  isLose: boolean;
 }
 
 export interface RoomConfig {
@@ -15,7 +15,7 @@ export interface RoomConfig {
 }
 
 export interface Room {
-  players: (Player | undefined)[];
+  players: Player[];
   config: RoomConfig;
   votes: Record<string, RoomConfig>;
   gameState: "waiting" | "started";
@@ -157,7 +157,7 @@ export class RoomManager {
     }
 
     let delay = 0;
-    if (playerCount === 2) delay = 15000;
+    if (playerCount === 2) delay = 3000;
     else if (playerCount === 3) delay = 10000;
     else if (playerCount >= 4) delay = 7000;
 
@@ -186,8 +186,7 @@ export class RoomManager {
     }, delay);
 
     console.log(
-      `Countdown started for room ${roomId} with ${playerCount} players (${
-        delay / 1000
+      `Countdown started for room ${roomId} with ${playerCount} players (${delay / 1000
       }s)`
     );
   }
@@ -220,7 +219,7 @@ export class RoomManager {
 
     const roomId = this.generateRoomCode();
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickName }],
+      players: [{ id: socket.id, nickName, isLose: false }],
       config: {
         slapDown,
         timePerPlayer: timePerPlayer,
@@ -253,6 +252,7 @@ export class RoomManager {
     config: RoomConfig
   ): boolean {
     const room = this.rooms[roomId];
+
     room.votes[nickName] = config;
 
     this.io.to(roomId).emit("votes_config", {
@@ -290,7 +290,7 @@ export class RoomManager {
     roomId = this.generateRoomCode();
 
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickName }],
+      players: [{ id: socket.id, nickName, isLose: false }],
       config: {
         slapDown,
         timePerPlayer,
@@ -332,7 +332,7 @@ export class RoomManager {
 
     // Prevent duplicate join
     if (!room.players.some((p) => p?.id === socket.id)) {
-      room.players.push({ id: socket.id, nickName });
+      room.players.push({ id: socket.id, nickName, isLose: false });
     }
 
     this.playerRooms[socket.id] = roomId;
@@ -409,7 +409,7 @@ export class RoomManager {
 
     // Prevent duplicate join
     if (!room.players.some((p) => p?.id === socket.id)) {
-      room.players.push({ id: socket.id, nickName });
+      room.players.push({ id: socket.id, nickName, isLose: false });
     }
 
     this.playerRooms[socket.id] = roomId;

@@ -1,7 +1,8 @@
 import { isUndefined } from "lodash";
 import { Server } from "socket.io";
 import { RoomManager } from "./roomManager";
-import { Card } from "./cards";
+import { Card, TurnAction } from "./cards";
+import { isValidCardSet } from "./gameRules";
 
 export interface GameState {
   currentPlayer: number;
@@ -17,6 +18,7 @@ export interface GameState {
   canCallYaniv: number;
   maxMatchPoints: number;
   slapDown: boolean;
+  slapDownActiveFor?: string;
   playersScores: Record<string, string>;
 }
 
@@ -258,7 +260,15 @@ export class GameManager {
           card.value >=
           Math.max(...game.playerHands[currentPlayer.id].map((c) => c.value))
       );
-      this.completeTurn(roomId, currentPlayer.id, "deck", [pickedCard[0]]);
+      this.completeTurn(
+        roomId,
+        currentPlayer.id,
+        {
+          choice: "deck",
+        },
+        [pickedCard[0]],
+        true
+      );
     }
   }
 
@@ -266,9 +276,9 @@ export class GameManager {
   completeTurn(
     roomId: string,
     playerId: string,
-    choice: "deck" | "pickup",
+    action: TurnAction,
     selectedCards: Card[],
-    pickupIndex?: number
+    disableSlapDown = false
   ): boolean {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
@@ -282,9 +292,17 @@ export class GameManager {
 
     let success = false;
 
+    const { choice } = action;
+
     if (choice === "deck") {
-      success = this.drawFromDeck(roomId, playerId, selectedCards);
-    } else if (choice === "pickup" && pickupIndex !== undefined) {
+      success = this.drawFromDeck(
+        roomId,
+        playerId,
+        selectedCards,
+        disableSlapDown
+      );
+    } else if (choice === "pickup") {
+      const { pickupIndex } = action;
       success = this.pickupCard(roomId, playerId, pickupIndex, selectedCards);
     }
 
@@ -299,7 +317,8 @@ export class GameManager {
   private drawFromDeck(
     roomId: string,
     playerId: string,
-    selectedCards: Card[]
+    selectedCards: Card[],
+    disableSlapDown = false
   ): boolean {
     const game = this.games[roomId];
     if (!game) {
@@ -319,16 +338,21 @@ export class GameManager {
     game.lastPlayedCards = selectedCards;
 
     if (card) {
-      if (game.slapDown) {
+      if (
+        !disableSlapDown &&
+        game.slapDown &&
+        isValidCardSet([...selectedCards, card])
+      ) {
+        game.slapDownActiveFor = playerId;
       }
       game.playerHands[playerId].push(card);
       game.playerHands[playerId].sort((a, b) => a.value - b.value);
       this.io.to(roomId).emit("player_drew", {
         playerId,
         source: "deck",
-        cardsInDeck: game.deck.length,
         hands: game.playerHands[playerId],
         lastPlayedCards: game.lastPlayedCards,
+        slapDownActiveFor: game.slapDownActiveFor,
       });
 
       return true;
@@ -574,7 +598,6 @@ export class GameManager {
 
     return {
       currentPlayer: game.currentPlayer,
-      cardsInDeck: game.deck.length,
       gameStartTime: game.gameStartTime,
       turnStartTime: game.turnStartTime,
       gameEnded: game.gameEnded,

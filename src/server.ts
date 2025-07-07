@@ -4,7 +4,7 @@ import { Server, Socket } from "socket.io";
 import cors from "cors";
 import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
 import { GameManager } from "./gameManager";
-import { Card } from "./cards";
+import { Card, TurnAction } from "./cards";
 
 const app = express();
 const server = createServer(app);
@@ -126,21 +126,16 @@ io.on("connection", (socket: Socket) => {
   // Complete turn by drawing (second part of turn)
   socket.on(
     "complete_turn",
-    (data: {
-      choice: "deck" | "pickup";
-      selectedCards: Card[];
-      pickupIndex?: number;
-    }) => {
-      const { choice, selectedCards, pickupIndex } = data;
+    (data: { action: TurnAction; selectedCards: Card[] }) => {
+      const { action, selectedCards } = data;
       const roomId = roomManager.getPlayerRoom(socket.id);
 
       if (roomId) {
         const success = gameManager.completeTurn(
           roomId,
           socket.id,
-          choice,
-          selectedCards,
-          pickupIndex
+          action,
+          selectedCards
         );
         if (!success) {
           socket.emit("game_error", { message: "Cannot complete turn." });

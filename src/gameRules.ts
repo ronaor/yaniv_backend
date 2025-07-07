@@ -45,7 +45,9 @@ const isIdenticalCards = (cards: Card[]): boolean => {
 // בדיקה אם הקלפים יוצרים רצף
 const isSequence = (cards: Card[]): boolean => {
   // בדוק אם כל הקלפים הלא-ג'וקרים מאותו צבע
-  const nonJokerCards = cards.sort().filter((card) => !card.isJoker);
+  const nonJokerCards = cards
+    .sort((a, b) => a.value - b.value)
+    .filter((card) => !card.isJoker);
   if (nonJokerCards.length > 1) {
     const firstSuit = nonJokerCards[0].suit;
     if (!nonJokerCards.every((card) => card.suit === firstSuit)) {

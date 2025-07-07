@@ -1,13 +1,7 @@
 import { isUndefined } from "lodash";
 import { Server } from "socket.io";
 import { RoomManager } from "./roomManager";
-
-// Game-specific interfaces
-export interface Card {
-  suit: "hearts" | "diamonds" | "clubs" | "spades";
-  value: number; // 1-13 (1=Ace, 11=Jack, 12=Queen, 13=King)
-  isJoker?: boolean; // Mark jokers
-}
+import { Card } from "./cards";
 
 export interface GameState {
   currentPlayer: number;

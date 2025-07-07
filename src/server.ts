@@ -3,7 +3,8 @@ import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import cors from "cors";
 import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
-import { Card, GameManager } from "./gameManager";
+import { GameManager } from "./gameManager";
+import { Card } from "./cards";
 
 const app = express();
 const server = createServer(app);
@@ -110,9 +111,9 @@ io.on("connection", (socket: Socket) => {
   );
 
   //leave_room
-  socket.on("leave_room", (data: { nickName: string }) => {
+  socket.on("leave_room", (data: { nickName: string; isAdmin: boolean }) => {
     const roomId = roomManager.getPlayerRoom(socket.id);
-    roomManager.leaveRoom(socket, data.nickName);
+    roomManager.leaveRoom(socket, data.nickName, data.isAdmin);
 
     if (roomId) {
       const room = roomManager.getRoomState(roomId);

@@ -478,16 +478,27 @@ export class RoomManager {
     socket.leave(roomId);
 
     if (room.players.length === 0) {
-      delete this.rooms[roomId];
-      console.log(`Room ${roomId} deleted - no players left`);
+      this.deleteRoom(roomId);
     }
   }
 
   // Leave room explicitly
-  leaveRoom(socket: Socket, nickName: string): void {
+  deleteRoom(roomId: string): void {
+    this.io.to(roomId).emit("kick_out_from_room", { roomId });
+    delete this.rooms[roomId];
+    console.log(`Room ${roomId} deleted - no players left`);
+  }
+
+  // Leave room explicitly
+  leaveRoom(socket: Socket, nickName: string, isAdmin: boolean): void {
     const roomId = this.playerRooms[socket.id];
     console.log("🚀 ~ RoomManager ~ leaveRoom ~ socket.id:", socket.id);
     if (!roomId) {
+      return;
+    }
+
+    if (isAdmin) {
+      this.deleteRoom(roomId);
       return;
     }
     // const room = this.rooms[roomId];

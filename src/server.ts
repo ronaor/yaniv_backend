@@ -157,6 +157,19 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
+  // Call Yaniv
+  socket.on("slap_down", (data: { card: Card }) => {
+    const roomId = roomManager.getPlayerRoom(socket.id);
+    if (roomId) {
+      const success = gameManager.onSlapDown(roomId, socket.id, data.card);
+      if (!success) {
+        socket.emit("game_error", {
+          message: "Cannot slap-down at this time.",
+        });
+      }
+    }
+  });
+
   //disconnect Handle disconnects
   socket.on("disconnect", () => {
     console.log(`Player disconnected: ${socket.id}`);

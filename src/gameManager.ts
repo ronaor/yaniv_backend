@@ -19,6 +19,7 @@ export interface GameState {
   maxMatchPoints: number;
   slapDown: boolean;
   slapDownActiveFor?: string;
+  slapDownTimer?: NodeJS.Timeout;
   playersScores: Record<string, string>;
 }
 
@@ -74,6 +75,8 @@ export class GameManager {
       canCallYaniv: room.config.canCallYaniv,
       maxMatchPoints: room.config.maxMatchPoints,
       slapDown: room.config.slapDown,
+      slapDownActiveFor: undefined,
+      slapDownTimer: undefined,
     };
 
     this.games[roomId] = gameState;
@@ -135,6 +138,8 @@ export class GameManager {
       canCallYaniv: room.config.canCallYaniv,
       maxMatchPoints: room.config.maxMatchPoints,
       slapDown: room.config.slapDown,
+      slapDownTimer: undefined,
+      slapDownActiveFor: undefined,
       playersScores: game.playersScores,
     };
 
@@ -225,6 +230,11 @@ export class GameManager {
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
+    }
+
+    if (game.slapDownTimer) {
+      clearTimeout(game.slapDownTimer);
+      game.slapDownTimer = undefined;
     }
 
     game.turnStartTime = new Date();
@@ -318,7 +328,8 @@ export class GameManager {
     roomId: string,
     playerId: string,
     selectedCards: Card[],
-    disableSlapDown = false
+    disableSlapDown = false, // case where it must disable the slap-down even if suppose to be
+    isSlappedDown = false // indication that the action was by a slap-down
   ): boolean {
     const game = this.games[roomId];
     if (!game) {
@@ -343,7 +354,13 @@ export class GameManager {
         game.slapDown &&
         isValidCardSet([...selectedCards, card])
       ) {
+        this.removeCurrentSlapDown(game);
         game.slapDownActiveFor = playerId;
+        game.slapDownTimer = setTimeout(() => {
+          this.removeCurrentSlapDown(game);
+        }, 3000);
+      } else {
+        this.removeCurrentSlapDown(game);
       }
       game.playerHands[playerId].push(card);
       game.playerHands[playerId].sort((a, b) => a.value - b.value);
@@ -353,11 +370,21 @@ export class GameManager {
         hands: game.playerHands[playerId],
         lastPlayedCards: game.lastPlayedCards,
         slapDownActiveFor: game.slapDownActiveFor,
+        isSlappedDown,
+        card,
       });
 
       return true;
     }
     return false;
+  }
+
+  private removeCurrentSlapDown(game: GameState | undefined) {
+    if (game && game.slapDownTimer) {
+      clearTimeout(game.slapDownTimer);
+      game.slapDownTimer = undefined;
+      game.slapDownActiveFor = undefined;
+    }
   }
 
   // Pick up card from last played cards
@@ -399,6 +426,21 @@ export class GameManager {
     return true;
   }
 
+  // Slap-Down
+  onSlapDown(roomId: string, playerId: string, card: Card): boolean {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+    if (
+      !game ||
+      !room ||
+      game.gameEnded ||
+      game.slapDownActiveFor !== playerId
+    ) {
+      return false;
+    }
+    return this.drawFromDeck(roomId, playerId, [card], true, true);
+  }
+
   // Call Yaniv
   callYaniv(roomId: string, playerId: string): boolean {
     const game = this.games[roomId];
@@ -426,6 +468,11 @@ export class GameManager {
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
+    }
+
+    if (game.slapDownTimer) {
+      clearTimeout(game.slapDownTimer);
+      game.slapDownTimer = undefined;
     }
 
     const scores = room.players.map((player) =>
@@ -470,6 +517,11 @@ export class GameManager {
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
+    }
+
+    if (game.slapDownTimer) {
+      clearTimeout(game.slapDownTimer);
+      game.slapDownTimer = undefined;
     }
 
     const winnerId = assafCaller ?? yanivCaller;
@@ -538,6 +590,10 @@ export class GameManager {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
     }
+    if (game.slapDownTimer) {
+      clearTimeout(game.slapDownTimer);
+      game.slapDownTimer = undefined;
+    }
 
     const totalPlayers = room.players.length;
     let nextIndex = game.currentPlayer;
@@ -565,6 +621,10 @@ export class GameManager {
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
       game.turnTimer = undefined;
+    }
+    if (game.slapDownTimer) {
+      clearTimeout(game.slapDownTimer);
+      game.slapDownTimer = undefined;
     }
 
     game.gameEnded = true;
@@ -629,6 +689,9 @@ export class GameManager {
     const game = this.games[roomId];
     if (game?.turnTimer) {
       clearTimeout(game.turnTimer);
+    }
+    if (game?.slapDownTimer) {
+      clearTimeout(game.slapDownTimer);
     }
     delete this.games[roomId];
   }

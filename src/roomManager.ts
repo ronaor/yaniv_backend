@@ -1,4 +1,4 @@
-import { isEmpty, isUndefined } from "lodash";
+import { isEmpty } from "lodash";
 import { Server, Socket } from "socket.io";
 
 export interface Player {
@@ -61,7 +61,7 @@ export class RoomManager {
     return null;
   }
 
-  private calculateMajorityConfig(votes) {
+  private calculateMajorityConfig(votes: Record<string, Record<string, any>>) {
     // ערכים דיפולטים במקרה של תיקו
     const defaultConfig = {
       slapDown: true,
@@ -78,8 +78,8 @@ export class RoomManager {
     const totalPlayers = players.length;
 
     // פונקציה לחישוב רוב קולות לשדה מסוים
-    function getMajorityValue(fieldName, defaultValue) {
-      const valueCount = {};
+    function getMajorityValue(fieldName: string, defaultValue: any) {
+      const valueCount: Record<string, number> = {};
 
       // ספירת כל הערכים
       players.forEach((player) => {
@@ -104,7 +104,7 @@ export class RoomManager {
           if (fieldName === "slapDown") {
             majorityValue = value === "true";
           } else {
-            majorityValue = parseInt(value);
+            majorityValue = +value;
           }
         }
       }
@@ -140,7 +140,9 @@ export class RoomManager {
 
   private handleGameStartCountdown(roomId: string): void {
     const room = this.rooms[roomId];
-    if (!room || room.gameState !== "waiting") return;
+    if (!room || room.gameState !== "waiting") {
+      return;
+    }
 
     const playerCount = room.players.length;
 
@@ -157,9 +159,13 @@ export class RoomManager {
     }
 
     let delay = 0;
-    if (playerCount === 2) delay = 3000;
-    else if (playerCount === 3) delay = 10000;
-    else if (playerCount >= 4) delay = 7000;
+    if (playerCount === 2) {
+      delay = 3000;
+    } else if (playerCount === 3) {
+      delay = 10000;
+    } else if (playerCount >= 4) {
+      delay = 7000;
+    }
 
     // Restart existing timer
     if (this.startGameTimers[roomId]) {
@@ -186,7 +192,8 @@ export class RoomManager {
     }, delay);
 
     console.log(
-      `Countdown started for room ${roomId} with ${playerCount} players (${delay / 1000
+      `Countdown started for room ${roomId} with ${playerCount} players (${
+        delay / 1000
       }s)`
     );
   }
@@ -321,7 +328,9 @@ export class RoomManager {
     nickName: string
   ): boolean {
     const room = this.rooms[roomId];
-    if (!room) return false;
+    if (!room) {
+      return false;
+    }
 
     // Remove from previous room if exists
     const prevRoomId = this.playerRooms[socket.id];
@@ -398,7 +407,9 @@ export class RoomManager {
   // Helper to add player to a room (used by join_room and quick_game)
   addPlayerToRoom(socket: Socket, roomId: string, nickName: string): boolean {
     const room = this.rooms[roomId];
-    if (!room) return false;
+    if (!room) {
+      return false;
+    }
 
     // Remove from previous room if exists
     const prevRoomId = this.playerRooms[socket.id];
@@ -450,11 +461,15 @@ export class RoomManager {
   // Remove player from room
   removePlayerFromRoom(socket: Socket, roomId: string, nickName: string): void {
     const room = this.rooms[roomId];
-    if (!room) return;
+    if (!room) {
+      return;
+    }
 
     room.players = room.players.filter((p) => p?.id !== socket.id);
     console.log("room.votes", room.votes);
-    if (room.votes[nickName]) delete room.votes[nickName];
+    if (room.votes[nickName]) {
+      delete room.votes[nickName];
+    }
     console.log("2", room.votes);
 
     this.io
@@ -472,8 +487,10 @@ export class RoomManager {
   leaveRoom(socket: Socket, nickName: string): void {
     const roomId = this.playerRooms[socket.id];
     console.log("🚀 ~ RoomManager ~ leaveRoom ~ socket.id:", socket.id);
-    if (!roomId) return;
-    const room = this.rooms[roomId];
+    if (!roomId) {
+      return;
+    }
+    // const room = this.rooms[roomId];
 
     this.removePlayerFromRoom(socket, roomId, nickName);
     delete this.playerRooms[socket.id];
@@ -491,7 +508,9 @@ export class RoomManager {
   // Handle disconnect
   handleDisconnect(socket: Socket, nickName: string): void {
     const roomId = this.playerRooms[socket.id];
-    if (!roomId) return;
+    if (!roomId) {
+      return;
+    }
 
     this.removePlayerFromRoom(socket, roomId, nickName);
     delete this.playerRooms[socket.id];

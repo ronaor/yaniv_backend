@@ -20,13 +20,11 @@ export interface GameState {
   winner?: string;
   turnTimer?: NodeJS.Timeout;
   timePerPlayer: number;
-  canCallYaniv: number,
-  maxMatchPoints: number,
+  canCallYaniv: number;
+  maxMatchPoints: number;
   slapDown: boolean;
   playersScores: Record<string, string>;
 }
-
-const TIME_FOR_SHOUT = 10; //seconds
 
 function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
   const remainingCards = [...cards]; // Create a copy to avoid mutating original
@@ -123,9 +121,10 @@ export class GameManager {
     const firstCard = deck.pop();
     const firstPlayer =
       !isUndefined(winnerId) && room.players.length //&& !room.players[winnerId].isLose TODO when call asaf but the scores is over then maxmuchpoint
-        ? room.players.findIndex((player) => winnerId === player.id && !player.isLose)
+        ? room.players.findIndex(
+            (player) => winnerId === player.id && !player.isLose
+          )
         : null;
-
 
     const gameState: GameState = {
       currentPlayer: firstPlayer ?? 0,
@@ -167,7 +166,10 @@ export class GameManager {
       users: room.players,
     });
 
-    this.startPlayerTurn(roomId, winnerId);
+    game.currentPlayer = winnerId
+      ? room.players.findIndex((player) => player.id === winnerId)
+      : game.currentPlayer;
+    this.startPlayerTurn(roomId);
     return true;
   }
 
@@ -192,9 +194,15 @@ export class GameManager {
 
   // Calculate card value for scoring
   private getCardValue(card: Card): number {
-    if (card.isJoker) return 0;
-    if (card.value === 1) return 1; // Ace = 1
-    if (card.value >= 11) return 10; // J, Q, K = 10
+    if (card.isJoker) {
+      return 0;
+    }
+    if (card.value === 1) {
+      return 1;
+    } // Ace = 1
+    if (card.value >= 11) {
+      return 10;
+    } // J, Q, K = 10
     return card.value; // 2-10 = face value
   }
 
@@ -210,11 +218,13 @@ export class GameManager {
     }
   }
 
-  private startPlayerTurn(roomId: string, winnerId?: string): void {
+  private startPlayerTurn(roomId: string): void {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room) return;
+    if (!game || !room) {
+      return;
+    }
 
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
@@ -241,7 +251,9 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room || game.gameEnded) return;
+    if (!game || !room || game.gameEnded) {
+      return;
+    }
 
     game.turnTimer = undefined;
     const currentPlayer = room.players[game.currentPlayer];
@@ -250,9 +262,7 @@ export class GameManager {
       const pickedCard: Card[] = game.playerHands[currentPlayer.id].filter(
         (card) =>
           card.value >=
-          Math.max(
-            ...game.playerHands[currentPlayer.id].map((card) => card.value)
-          )
+          Math.max(...game.playerHands[currentPlayer.id].map((c) => c.value))
       );
       this.completeTurn(roomId, currentPlayer.id, "deck", [pickedCard[0]]);
     }
@@ -269,8 +279,12 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room) return false;
-    if (room.players[game.currentPlayer]?.id !== playerId) return false;
+    if (!game || !room) {
+      return false;
+    }
+    if (room.players[game.currentPlayer]?.id !== playerId) {
+      return false;
+    }
 
     let success = false;
 
@@ -294,7 +308,9 @@ export class GameManager {
     selectedCards: Card[]
   ): boolean {
     const game = this.games[roomId];
-    if (!game) return false;
+    if (!game) {
+      return false;
+    }
 
     if (game.deck.length === 0) {
       this.reshuffleDiscardPile(roomId);
@@ -309,6 +325,8 @@ export class GameManager {
     game.lastPlayedCards = selectedCards;
 
     if (card) {
+      if (game.slapDown) {
+      }
       game.playerHands[playerId].push(card);
       game.playerHands[playerId].sort((a, b) => a.value - b.value);
       this.io.to(roomId).emit("player_drew", {
@@ -332,12 +350,16 @@ export class GameManager {
     selectedCards: Card[]
   ): boolean {
     const game = this.games[roomId];
-    if (!game || game.lastPlayedCards.length === 0) return false;
+    if (!game || game.lastPlayedCards.length === 0) {
+      return false;
+    }
     const lastPlay = game.lastPlayedCards;
 
     const pickupOptions = lastPlay;
 
-    if (cardIndex < 0 || cardIndex >= pickupOptions.length) return false;
+    if (cardIndex < 0 || cardIndex >= pickupOptions.length) {
+      return false;
+    }
 
     const cardToPick = pickupOptions[cardIndex];
 
@@ -364,8 +386,14 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room || game.gameEnded) return false;
-    if (room.players[game.currentPlayer]?.id !== playerId) return false;
+    if (
+      !game ||
+      !room ||
+      game.gameEnded ||
+      room.players[game.currentPlayer]?.id !== playerId
+    ) {
+      return false;
+    }
 
     const handValue = this.getHandValue(game.playerHands[playerId]);
 
@@ -383,14 +411,20 @@ export class GameManager {
     }
 
     const scores = room.players.map((player) =>
-      player && !player.isLose ? this.getHandValue(game.playerHands[player.id]) : Infinity
+      player && !player.isLose
+        ? this.getHandValue(game.playerHands[player.id])
+        : Infinity
     );
     const minValue = Math.min(...scores);
 
     const yanivCall = playerId;
     if (handValue >= minValue) {
-      const i = room.players.findIndex((player) =>
-        player && !player.isLose && player.id !== playerId && this.getHandValue(game.playerHands[player.id]) === minValue
+      const i = room.players.findIndex(
+        (player) =>
+          player &&
+          !player.isLose &&
+          player.id !== playerId &&
+          this.getHandValue(game.playerHands[player.id]) === minValue
       );
       scores.findIndex((score) => score === minValue);
       const winnerId = room.players[i]?.id ?? yanivCall;
@@ -411,7 +445,9 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room) return;
+    if (!game || !room) {
+      return;
+    }
 
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
@@ -423,7 +459,9 @@ export class GameManager {
     const playersScores: Record<string, string> = game.playersScores;
 
     for (const p of room.players) {
-      if (!p || p.isLose) continue;
+      if (!p || p.isLose) {
+        continue;
+      }
 
       let score: number = isUndefined(playersScores[p.id])
         ? 0
@@ -442,7 +480,7 @@ export class GameManager {
         score -= 50;
       }
       if (score > 25) {
-        p.isLose = true
+        p.isLose = true;
       }
       playersScores[p.id] = String(score);
     }
@@ -462,31 +500,6 @@ export class GameManager {
     console.log(`Round ended. winner: ${winnerId}`);
   }
 
-  // Check if cards form a valid sequence (consecutive same suit)
-  private isValidSequence(cards: Card[]): boolean {
-    if (cards.length < 3) return false;
-
-    const realCards = cards.filter((c) => !c.isJoker);
-    const jokerCount = cards.length - realCards.length;
-
-    if (realCards.length === 0) return false;
-
-    // All real cards must be same suit
-    const suit = realCards[0].suit;
-    if (!realCards.every((card) => card.suit === suit)) return false;
-
-    // Sort real cards by value
-    const sortedValues = realCards.map((c) => c.value).sort((a, b) => a - b);
-
-    // Check if sequence is possible with jokers
-    let gapsNeeded = 0;
-    for (let i = 0; i < sortedValues.length - 1; i++) {
-      gapsNeeded += sortedValues[i + 1] - sortedValues[i] - 1;
-    }
-
-    return gapsNeeded <= jokerCount;
-  }
-
   private reshuffleDiscardPile(roomId: string): void {
     const game = this.games[roomId];
     const topCard = game.lastPlayedCards.pop();
@@ -499,7 +512,9 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room || game.gameEnded) return;
+    if (!game || !room || game.gameEnded) {
+      return;
+    }
 
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
@@ -525,7 +540,9 @@ export class GameManager {
 
   private endGame(roomId: string, winnerId: string): void {
     const game = this.games[roomId];
-    if (!game) return;
+    if (!game) {
+      return;
+    }
 
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
@@ -543,7 +560,9 @@ export class GameManager {
 
   private calculateFinalScores(roomId: string): { [playerId: string]: number } {
     const game = this.games[roomId];
-    if (!game) return {};
+    if (!game) {
+      return {};
+    }
 
     const scores: { [playerId: string]: number } = {};
     Object.entries(game.playerHands).forEach(([playerId, hand]) => {
@@ -555,7 +574,9 @@ export class GameManager {
 
   private getPublicGameState(roomId: string) {
     const game = this.games[roomId];
-    if (!game) return null;
+    if (!game) {
+      return null;
+    }
 
     return {
       currentPlayer: game.currentPlayer,
@@ -573,7 +594,9 @@ export class GameManager {
 
   private getPlayerHands(roomId: string) {
     const game = this.games[roomId];
-    if (!game) return {};
+    if (!game) {
+      return {};
+    }
 
     const playerHands: { [playerId: string]: Card[] } = {};
     Object.entries(game.playerHands).forEach(([playerId, hand]) => {

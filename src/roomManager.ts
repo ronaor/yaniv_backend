@@ -1,21 +1,19 @@
 import { isEmpty } from "lodash";
 import { Server, Socket } from "socket.io";
-
-export interface Player {
+export interface User {
   id: string;
   nickName: string;
-  isLose: boolean;
 }
 
 export interface RoomConfig {
   slapDown: boolean;
-  timePerPlayer: number; // in seconds
-  canCallYaniv: number; // 0 or 1
-  maxMatchPoints: number; // max points for a match
+  timePerPlayer: number;
+  canCallYaniv: number;
+  maxMatchPoints: number;
 }
 
 export interface Room {
-  players: Player[];
+  players: User[];
   config: RoomConfig;
   votes: Record<string, RoomConfig>;
   gameState: "waiting" | "started";
@@ -226,7 +224,7 @@ export class RoomManager {
 
     const roomId = this.generateRoomCode();
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickName, isLose: false }],
+      players: [{ id: socket.id, nickName }],
       config: {
         slapDown,
         timePerPlayer: timePerPlayer,
@@ -297,7 +295,7 @@ export class RoomManager {
     roomId = this.generateRoomCode();
 
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickName, isLose: false }],
+      players: [{ id: socket.id, nickName }],
       config: {
         slapDown,
         timePerPlayer,
@@ -341,7 +339,7 @@ export class RoomManager {
 
     // Prevent duplicate join
     if (!room.players.some((p) => p?.id === socket.id)) {
-      room.players.push({ id: socket.id, nickName, isLose: false });
+      room.players.push({ id: socket.id, nickName });
     }
 
     this.playerRooms[socket.id] = roomId;
@@ -420,7 +418,7 @@ export class RoomManager {
 
     // Prevent duplicate join
     if (!room.players.some((p) => p?.id === socket.id)) {
-      room.players.push({ id: socket.id, nickName, isLose: false });
+      room.players.push({ id: socket.id, nickName });
     }
 
     this.playerRooms[socket.id] = roomId;

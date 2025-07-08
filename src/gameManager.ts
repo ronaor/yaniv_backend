@@ -4,6 +4,11 @@ import { RoomManager } from "./roomManager";
 import { Card, TurnAction } from "./cards";
 import { isValidCardSet } from "./gameRules";
 
+type PlayerStatus = {
+  score: number;
+  lost: boolean;
+};
+
 export interface GameState {
   currentPlayer: number;
   deck: Card[];
@@ -20,7 +25,7 @@ export interface GameState {
   slapDown: boolean;
   slapDownActiveFor?: string;
   slapDownTimer?: NodeJS.Timeout;
-  playersScores: Record<string, string>;
+  playersStats: Record<string, PlayerStatus>;
 }
 
 function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
@@ -68,7 +73,13 @@ export class GameManager {
       playerHands: {},
       gameStartTime: new Date(),
       turnStartTime: new Date(),
-      playersScores: {},
+      playersStats: room.players.reduce<Record<string, PlayerStatus>>(
+        (obj, user) => {
+          obj[user.id] = { score: 0, lost: false };
+          return obj;
+        },
+        {}
+      ),
       gameEnded: false,
       turnTimer: undefined,
       timePerPlayer: room.config.timePerPlayer,
@@ -100,7 +111,6 @@ export class GameManager {
       gameState: this.getPublicGameState(roomId),
       playerHands: this.getPlayerHands(roomId),
       firstCard,
-      users: room.players,
     });
 
     this.startPlayerTurn(roomId);
@@ -121,7 +131,8 @@ export class GameManager {
     const firstPlayer =
       !isUndefined(winnerId) && room.players.length //&& !room.players[winnerId].isLose TODO when call asaf but the scores is over then maxmuchpoint
         ? room.players.findIndex(
-            (player) => winnerId === player.id && !player.isLose
+            (player) =>
+              winnerId === player.id && !game.playersStats[player.id].lost
           )
         : null;
 
@@ -140,7 +151,7 @@ export class GameManager {
       slapDown: room.config.slapDown,
       slapDownTimer: undefined,
       slapDownActiveFor: undefined,
-      playersScores: game.playersScores,
+      playersStats: game.playersStats,
     };
 
     this.games[roomId] = gameState;
@@ -149,7 +160,7 @@ export class GameManager {
 
     // Deal 5 cards to each player
     room.players.forEach((player) => {
-      if (player && !player.isLose) {
+      if (player && !game.playersStats[player.id].lost) {
         gameState.playerHands[player.id] = [];
         for (let i = 0; i < 5; i++) {
           const card = gameState.deck.pop();
@@ -160,7 +171,7 @@ export class GameManager {
       }
     });
     this.io.to(roomId).emit("new_round", {
-      playersScores: game.playersScores,
+      playersStats: game.playersStats,
       gameState: this.getPublicGameState(roomId),
       playerHands: this.getPlayerHands(roomId),
       firstCard,
@@ -227,15 +238,7 @@ export class GameManager {
       return;
     }
 
-    if (game.turnTimer) {
-      clearTimeout(game.turnTimer);
-      game.turnTimer = undefined;
-    }
-
-    if (game.slapDownTimer) {
-      clearTimeout(game.slapDownTimer);
-      game.slapDownTimer = undefined;
-    }
+    this.removeTimers(game);
 
     game.turnStartTime = new Date();
     const currentPlayer = room.players[game.currentPlayer];
@@ -462,34 +465,27 @@ export class GameManager {
       return false;
     }
 
-    if (game.turnTimer) {
-      clearTimeout(game.turnTimer);
-      game.turnTimer = undefined;
-    }
-
-    if (game.slapDownTimer) {
-      clearTimeout(game.slapDownTimer);
-      game.slapDownTimer = undefined;
-    }
+    this.removeTimers(game);
 
     const scores = room.players.map((player) =>
-      player && !player.isLose
+      player && !game.playersStats[player.id].lost
         ? this.getHandValue(game.playerHands[player.id])
         : Infinity
     );
     const minValue = Math.min(...scores);
 
     const yanivCall = playerId;
+
     if (handValue >= minValue) {
       const i = room.players.findIndex(
         (player) =>
           player &&
-          !player.isLose &&
+          !game.playersStats[player.id].lost &&
           player.id !== playerId &&
           this.getHandValue(game.playerHands[player.id]) === minValue
       );
       scores.findIndex((score) => score === minValue);
-      const winnerId = room.players[i]?.id ?? yanivCall;
+      const winnerId = room.players[i]?.id;
       this.endRound(roomId, yanivCall, winnerId);
     } else {
       this.endRound(roomId, playerId);
@@ -511,28 +507,20 @@ export class GameManager {
       return;
     }
 
-    if (game.turnTimer) {
-      clearTimeout(game.turnTimer);
-      game.turnTimer = undefined;
-    }
-
-    if (game.slapDownTimer) {
-      clearTimeout(game.slapDownTimer);
-      game.slapDownTimer = undefined;
-    }
+    this.removeTimers(game);
 
     const winnerId = assafCaller ?? yanivCaller;
 
-    const playersScores: Record<string, string> = game.playersScores;
+    const playersStats: Record<string, PlayerStatus> = game.playersStats;
 
     for (const p of room.players) {
-      if (!p || p.isLose) {
+      if (!p || playersStats[p.id].lost) {
         continue;
       }
 
-      let score: number = isUndefined(playersScores[p.id])
+      let score: number = isUndefined(playersStats[p.id])
         ? 0
-        : +playersScores[p.id];
+        : +playersStats[p.id].score;
 
       if (p.id === yanivCaller && yanivCaller === winnerId) {
         score += 0;
@@ -547,22 +535,25 @@ export class GameManager {
         score -= 50;
       }
       if (score > 25) {
-        p.isLose = true;
+        playersStats[p.id].lost = true;
       }
-      playersScores[p.id] = String(score);
+      playersStats[p.id].score = score;
     }
 
-    game.playersScores = playersScores;
+    game.playersStats = playersStats;
     this.io.to(roomId).emit("round_ended", {
       winnerId,
-      playersScores,
+      playersStats,
       lowestValue: game.playerHands[winnerId],
       yanivCaller,
       assafCaller,
       playerHands: game.playerHands,
     });
 
-    this.startNewRound(roomId, assafCaller ?? yanivCaller);
+    const startGameTimeout = setTimeout(() => {
+      this.startNewRound(roomId, winnerId);
+      clearTimeout(startGameTimeout);
+    }, 3000 + (yanivCaller ? 3000 : 0) + (assafCaller ? 3000 : 0));
 
     console.log(`Round ended. winner: ${winnerId}`);
   }
@@ -583,14 +574,7 @@ export class GameManager {
       return;
     }
 
-    if (game.turnTimer) {
-      clearTimeout(game.turnTimer);
-      game.turnTimer = undefined;
-    }
-    if (game.slapDownTimer) {
-      clearTimeout(game.slapDownTimer);
-      game.slapDownTimer = undefined;
-    }
+    this.removeTimers(game);
 
     const totalPlayers = room.players.length;
     let nextIndex = game.currentPlayer;
@@ -598,7 +582,7 @@ export class GameManager {
     for (let i = 0; i < totalPlayers; i++) {
       nextIndex = (nextIndex + 1) % totalPlayers;
       const player = room.players[nextIndex];
-      if (player && !player.isLose) {
+      if (player && !game.playersStats[player.id].lost) {
         game.currentPlayer = nextIndex;
         this.startPlayerTurn(roomId);
         return;
@@ -615,14 +599,7 @@ export class GameManager {
       return;
     }
 
-    if (game.turnTimer) {
-      clearTimeout(game.turnTimer);
-      game.turnTimer = undefined;
-    }
-    if (game.slapDownTimer) {
-      clearTimeout(game.slapDownTimer);
-      game.slapDownTimer = undefined;
-    }
+    this.removeTimers(game);
 
     game.gameEnded = true;
     game.winner = winnerId;
@@ -663,6 +640,7 @@ export class GameManager {
       canCallYaniv: game.canCallYaniv,
       maxMatchPoints: game.maxMatchPoints,
       slapDown: game.slapDown,
+      playersStats: game.playersStats,
     };
   }
 
@@ -684,16 +662,21 @@ export class GameManager {
 
   cleanupGame(roomId: string): void {
     const game = this.games[roomId];
-    if (game?.turnTimer) {
-      clearTimeout(game.turnTimer);
+    if (game) {
+      this.removeTimers(game);
+      delete this.games[roomId];
     }
-    if (game?.slapDownTimer) {
-      clearTimeout(game.slapDownTimer);
-    }
-    delete this.games[roomId];
   }
 
   getGameState(roomId: string): GameState | null {
     return this.games[roomId] || null;
+  }
+
+  removeTimers(game: GameState) {
+    if (game.turnTimer) {
+      clearTimeout(game.turnTimer);
+      game.turnTimer = undefined;
+    }
+    this.removeCurrentSlapDown(game);
   }
 }

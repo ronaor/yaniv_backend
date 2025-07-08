@@ -7,7 +7,7 @@ import { isValidCardSet } from "./gameRules";
 export interface GameState {
   currentPlayer: number;
   deck: Card[];
-  lastPlayedCards: Card[]; // Track what was played last turn for pickup rules
+  pickupCards: Card[]; // Track what was played last turn for pickup rules
   playerHands: { [playerId: string]: Card[] };
   gameStartTime: Date;
   turnStartTime: Date;
@@ -64,7 +64,7 @@ export class GameManager {
     const gameState: GameState = {
       currentPlayer: 0,
       deck,
-      lastPlayedCards: firstCard ? [firstCard] : [],
+      pickupCards: firstCard ? [firstCard] : [],
       playerHands: {},
       gameStartTime: new Date(),
       turnStartTime: new Date(),
@@ -128,7 +128,7 @@ export class GameManager {
     const gameState: GameState = {
       currentPlayer: firstPlayer ?? 0,
       deck,
-      lastPlayedCards: firstCard ? [firstCard] : [],
+      pickupCards: firstCard ? [firstCard] : [],
       playerHands: {},
       gameStartTime: new Date(),
       turnStartTime: new Date(),
@@ -346,7 +346,7 @@ export class GameManager {
       game.playerHands[playerId],
       selectedCards
     );
-    game.lastPlayedCards = selectedCards;
+    game.pickupCards = selectedCards;
 
     if (card) {
       if (
@@ -368,7 +368,7 @@ export class GameManager {
         playerId,
         source: "deck",
         hands: game.playerHands[playerId],
-        lastPlayedCards: game.lastPlayedCards,
+        pickupCards: game.pickupCards,
         slapDownActiveFor: game.slapDownActiveFor,
         isSlappedDown,
         card,
@@ -395,18 +395,15 @@ export class GameManager {
     selectedCards: Card[]
   ): boolean {
     const game = this.games[roomId];
-    if (!game || game.lastPlayedCards.length === 0) {
-      return false;
-    }
-    const lastPlay = game.lastPlayedCards;
-
-    const pickupOptions = lastPlay;
-
-    if (cardIndex < 0 || cardIndex >= pickupOptions.length) {
+    if (!game || game.pickupCards.length === 0) {
       return false;
     }
 
-    const cardToPick = pickupOptions[cardIndex];
+    if (cardIndex < 0 || cardIndex >= game.pickupCards.length) {
+      return false;
+    }
+
+    const cardToPick = game.pickupCards[cardIndex];
 
     game.playerHands[playerId] = [
       ...removeSelectedCards(game.playerHands[playerId], selectedCards),
@@ -414,13 +411,13 @@ export class GameManager {
     ];
     game.playerHands[playerId].sort((a, b) => a.value - b.value);
 
-    game.lastPlayedCards = selectedCards;
+    game.pickupCards = selectedCards;
     this.io.to(roomId).emit("player_drew", {
       playerId,
       source: "pickup",
       card: cardToPick,
       hands: game.playerHands[playerId],
-      lastPlayedCards: game.lastPlayedCards,
+      pickupCards: game.pickupCards,
     });
 
     return true;
@@ -572,9 +569,9 @@ export class GameManager {
 
   private reshuffleDiscardPile(roomId: string): void {
     const game = this.games[roomId];
-    const topCard = game.lastPlayedCards.pop();
+    const topCard = game.pickupCards.pop();
     this.shuffleDeck(game.deck);
-    game.lastPlayedCards = topCard ? [topCard] : [];
+    game.pickupCards = topCard ? [topCard] : [];
     this.io.to(roomId).emit("deck_reshuffled");
   }
 

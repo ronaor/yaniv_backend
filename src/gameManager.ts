@@ -63,6 +63,8 @@ export class GameManager {
     }
 
     const deck = this.createDeck();
+    this.shuffleDeck(deck);
+
     // Place first card on discard pile
     const firstCard = deck.pop();
 
@@ -91,8 +93,6 @@ export class GameManager {
     };
 
     this.games[roomId] = gameState;
-
-    this.shuffleDeck(gameState.deck);
 
     // Deal 5 cards to each player
     room.players.forEach((player) => {
@@ -126,6 +126,8 @@ export class GameManager {
     }
 
     const deck = this.createDeck();
+    this.shuffleDeck(deck);
+
     // Place first card on discard pile
     const firstCard = deck.pop();
     const firstPlayer =
@@ -155,8 +157,6 @@ export class GameManager {
     };
 
     this.games[roomId] = gameState;
-
-    this.shuffleDeck(gameState.deck);
 
     // Deal 5 cards to each player
     room.players.forEach((player) => {

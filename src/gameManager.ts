@@ -238,7 +238,10 @@ export class GameManager {
       return;
     }
 
-    this.removeTimers(game);
+    if (game.turnTimer) {
+      clearTimeout(game.turnTimer);
+      game.turnTimer = undefined;
+    }
 
     game.turnStartTime = new Date();
     const currentPlayer = room.players[game.currentPlayer];
@@ -331,8 +334,7 @@ export class GameManager {
     roomId: string,
     playerId: string,
     selectedCards: Card[],
-    disableSlapDown = false, // case where it must disable the slap-down even if suppose to be
-    isSlappedDown = false // indication that the action was by a slap-down
+    disableSlapDown = false // case where it must disable the slap-down even if suppose to be
   ): boolean {
     const game = this.games[roomId];
     if (!game) {
@@ -367,13 +369,13 @@ export class GameManager {
       }
       game.playerHands[playerId].push(card);
       game.playerHands[playerId].sort((a, b) => a.value - b.value);
+      this.games[roomId] = game;
       this.io.to(roomId).emit("player_drew", {
         playerId,
         source: "deck",
         hands: game.playerHands[playerId],
         pickupCards: game.pickupCards,
         slapDownActiveFor: game.slapDownActiveFor,
-        isSlappedDown,
         card,
       });
 
@@ -382,7 +384,7 @@ export class GameManager {
     return false;
   }
 
-  private removeCurrentSlapDown(game: GameState | undefined) {
+  private removeCurrentSlapDown(game: GameState | undefined, reset = false) {
     if (game && game.slapDownTimer) {
       clearTimeout(game.slapDownTimer);
       game.slapDownTimer = undefined;
@@ -438,7 +440,22 @@ export class GameManager {
     ) {
       return false;
     }
-    return this.drawFromDeck(roomId, playerId, [card], true, true);
+
+    game.playerHands[playerId] = removeSelectedCards(
+      game.playerHands[playerId],
+      [card]
+    );
+    game.pickupCards = [card];
+
+    this.io.to(roomId).emit("player_drew", {
+      playerId,
+      source: "slap",
+      hands: game.playerHands[playerId],
+      pickupCards: game.pickupCards,
+      card,
+    });
+
+    return true;
   }
 
   // Call Yaniv
@@ -574,7 +591,10 @@ export class GameManager {
       return;
     }
 
-    this.removeTimers(game);
+    if (game.turnTimer) {
+      clearTimeout(game.turnTimer);
+      game.turnTimer = undefined;
+    }
 
     const totalPlayers = room.players.length;
     let nextIndex = game.currentPlayer;

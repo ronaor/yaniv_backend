@@ -5,6 +5,7 @@ import cors from "cors";
 import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
 import { GameManager } from "./gameManager";
 import { Card, TurnAction } from "./cards";
+import { networkInterfaces } from "os";
 
 const app = express();
 const server = createServer(app);
@@ -203,7 +204,12 @@ io.on("connection", (socket: Socket) => {
   });
 });
 
+const getLocalIP = () =>
+  Object.values(networkInterfaces())
+    .flat()
+    .find((i) => i?.family === "IPv4" && !i.internal)?.address || "localhost";
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => {
-  console.log(`Yaniv server running on port ${PORT}`);
+  console.log(`Yaniv server running on http://${getLocalIP()}:${PORT}`);
 });

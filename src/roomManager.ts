@@ -258,6 +258,10 @@ export class RoomManager {
   ): boolean {
     const room = this.rooms[roomId];
 
+    if (!room) {
+      return false;
+    }
+
     room.votes[nickName] = config;
 
     this.io.to(roomId).emit("votes_config", {

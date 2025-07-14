@@ -171,17 +171,19 @@ export class GameManager {
         }
       }
     });
+    game.currentPlayer = winnerId
+      ? room.players.findIndex((player) => player.id === winnerId)
+      : game.currentPlayer;
+
     this.io.to(roomId).emit("new_round", {
       playersStats: game.playersStats,
       gameState: this.getPublicGameState(roomId),
       playerHands: this.getPlayerHands(roomId),
       firstCard,
       users: room.players,
+      currentPlayerId: room.players[game.currentPlayer].id,
     });
 
-    game.currentPlayer = winnerId
-      ? room.players.findIndex((player) => player.id === winnerId)
-      : game.currentPlayer;
     this.startPlayerTurn(roomId);
     return true;
   }
@@ -254,9 +256,9 @@ export class GameManager {
       });
 
       // Start turn timer
-      // game.turnTimer = setTimeout(() => {
-      //   this.handleTurnTimeout(roomId);
-      // }, game.timePerPlayer * 1000);
+      game.turnTimer = setTimeout(() => {
+        this.handleTurnTimeout(roomId);
+      }, game.timePerPlayer * 1000);
     }
   }
 

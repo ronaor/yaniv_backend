@@ -16,3 +16,5 @@ export type TurnAction =
       choice: "deck";
     }
   | { choice: "pickup"; pickupIndex: number };
+
+export const getCardKey = (card: Card) => `${card.suit}-${card.value}`;

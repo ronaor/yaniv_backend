@@ -1,7 +1,7 @@
 import { isUndefined } from "lodash";
 import { Server } from "socket.io";
 import { RoomManager } from "./roomManager";
-import { Card, TurnAction } from "./cards";
+import { Card, getCardKey, TurnAction } from "./cards";
 import { isValidCardSet } from "./gameRules";
 
 type PlayerStatus = {
@@ -253,9 +253,9 @@ export class GameManager {
       });
 
       // Start turn timer
-      game.turnTimer = setTimeout(() => {
-        this.handleTurnTimeout(roomId);
-      }, game.timePerPlayer * 1000);
+      // game.turnTimer = setTimeout(() => {
+      //   this.handleTurnTimeout(roomId);
+      // }, game.timePerPlayer * 1000);
     }
   }
 
@@ -347,6 +347,11 @@ export class GameManager {
 
     const card = game.deck.pop();
 
+    const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
+      selectedCards,
+      game.playerHands[playerId]
+    );
+
     game.playerHands[playerId] = removeSelectedCards(
       game.playerHands[playerId],
       selectedCards
@@ -375,13 +380,25 @@ export class GameManager {
         source: "deck",
         hands: game.playerHands[playerId],
         pickupCards: game.pickupCards,
-        slapDownActiveFor: game.slapDownActiveFor,
         card,
+        selectedCardsPositions,
+        amountBefore,
+        slapDownActiveFor: game.slapDownActiveFor,
       });
 
       return true;
     }
     return false;
+  }
+
+  private getStateBeforeAction(selectedCards: Card[], playerHands: Card[]) {
+    const handsCardKeys = playerHands.map(getCardKey);
+    const selectedCardsKeys = selectedCards.map(getCardKey);
+    const selectedCardsPositions = selectedCardsKeys
+      .map((cardKey) => handsCardKeys.indexOf(cardKey))
+      .filter((i) => i >= 0);
+    const amountBefore = handsCardKeys.length;
+    return { selectedCardsPositions, amountBefore };
   }
 
   private removeCurrentSlapDown(game: GameState | undefined, reset = false) {
@@ -408,6 +425,11 @@ export class GameManager {
       return false;
     }
 
+    const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
+      selectedCards,
+      game.playerHands[playerId]
+    );
+
     const cardToPick = game.pickupCards[cardIndex];
 
     game.playerHands[playerId] = [
@@ -420,9 +442,11 @@ export class GameManager {
     this.io.to(roomId).emit("player_drew", {
       playerId,
       source: "pickup",
-      card: cardToPick,
       hands: game.playerHands[playerId],
       pickupCards: game.pickupCards,
+      card: cardToPick,
+      selectedCardsPositions,
+      amountBefore,
     });
 
     return true;
@@ -441,6 +465,13 @@ export class GameManager {
       return false;
     }
 
+    const selectedCardsPositions = [
+      game.playerHands[playerId].findIndex(
+        (c) => getCardKey(c) === getCardKey(card)
+      ),
+    ];
+    const amountBefore = game.playerHands[playerId].length;
+
     game.playerHands[playerId] = removeSelectedCards(
       game.playerHands[playerId],
       [card]
@@ -453,6 +484,8 @@ export class GameManager {
       hands: game.playerHands[playerId],
       pickupCards: game.pickupCards,
       card,
+      selectedCardsPositions,
+      amountBefore,
     });
 
     return true;

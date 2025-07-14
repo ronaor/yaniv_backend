@@ -111,6 +111,7 @@ export class GameManager {
       gameState: this.getPublicGameState(roomId),
       playerHands: this.getPlayerHands(roomId),
       firstCard,
+      currentPlayerId: room.players[0].id,
     });
 
     this.startPlayerTurn(roomId);

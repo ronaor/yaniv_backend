@@ -306,12 +306,12 @@ export class GameManager {
       return false;
     }
 
-    let success = false;
+    let event;
 
     const { choice } = action;
 
     if (choice === "deck") {
-      success = this.drawFromDeck(
+      event = this.drawFromDeck(
         roomId,
         playerId,
         selectedCards,
@@ -319,14 +319,20 @@ export class GameManager {
       );
     } else if (choice === "pickup") {
       const { pickupIndex } = action;
-      success = this.pickupCard(roomId, playerId, pickupIndex, selectedCards);
+      event = this.pickupCard(roomId, playerId, pickupIndex, selectedCards);
     }
 
-    if (success) {
+    if (event) {
       this.nextTurn(roomId);
+
+      this.io.to(roomId).emit("player_drew", {
+        ...event,
+        currentPlayerId: room.players[game.currentPlayer].id,
+      });
+      this.startPlayerTurn(roomId);
     }
 
-    return success;
+    return !!event;
   }
 
   // Draw from deck
@@ -335,10 +341,21 @@ export class GameManager {
     playerId: string,
     selectedCards: Card[],
     disableSlapDown = false // case where it must disable the slap-down even if suppose to be
-  ): boolean {
+  ):
+    | {
+        playerId: string;
+        source: "deck";
+        hands: Card[];
+        pickupCards: Card[];
+        card: Card;
+        selectedCardsPositions: number[];
+        amountBefore: number;
+        slapDownActiveFor?: string;
+      }
+    | undefined {
     const game = this.games[roomId];
     if (!game) {
-      return false;
+      return;
     }
 
     if (game.deck.length === 0) {
@@ -375,7 +392,8 @@ export class GameManager {
       game.playerHands[playerId].push(card);
       game.playerHands[playerId].sort((a, b) => a.value - b.value);
       this.games[roomId] = game;
-      this.io.to(roomId).emit("player_drew", {
+
+      return {
         playerId,
         source: "deck",
         hands: game.playerHands[playerId],
@@ -384,11 +402,9 @@ export class GameManager {
         selectedCardsPositions,
         amountBefore,
         slapDownActiveFor: game.slapDownActiveFor,
-      });
-
-      return true;
+      };
     }
-    return false;
+    return;
   }
 
   private getStateBeforeAction(selectedCards: Card[], playerHands: Card[]) {
@@ -415,14 +431,24 @@ export class GameManager {
     playerId: string,
     cardIndex: number,
     selectedCards: Card[]
-  ): boolean {
+  ):
+    | {
+        playerId: string;
+        source: "pickup";
+        hands: Card[];
+        pickupCards: Card[];
+        card: Card;
+        selectedCardsPositions: number[];
+        amountBefore: number;
+      }
+    | undefined {
     const game = this.games[roomId];
     if (!game || game.pickupCards.length === 0) {
-      return false;
+      return;
     }
 
     if (cardIndex < 0 || cardIndex >= game.pickupCards.length) {
-      return false;
+      return;
     }
 
     const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
@@ -439,7 +465,8 @@ export class GameManager {
     game.playerHands[playerId].sort((a, b) => a.value - b.value);
 
     game.pickupCards = selectedCards;
-    this.io.to(roomId).emit("player_drew", {
+
+    return {
       playerId,
       source: "pickup",
       hands: game.playerHands[playerId],
@@ -447,9 +474,7 @@ export class GameManager {
       card: cardToPick,
       selectedCardsPositions,
       amountBefore,
-    });
-
-    return true;
+    };
   }
 
   // Slap-Down
@@ -486,6 +511,7 @@ export class GameManager {
       card,
       selectedCardsPositions,
       amountBefore,
+      currentPlayerId: room.players[game.currentPlayer].id,
     });
 
     return true;
@@ -637,7 +663,6 @@ export class GameManager {
       const player = room.players[nextIndex];
       if (player && !game.playersStats[player.id].lost) {
         game.currentPlayer = nextIndex;
-        this.startPlayerTurn(roomId);
         return;
       }
     }

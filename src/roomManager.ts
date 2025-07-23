@@ -21,6 +21,13 @@ export interface Room {
   canStartTheGameIn10Sec?: Date; // Optional, used to start the game when room is private
 }
 
+const defaultConfig: RoomConfig = {
+  slapDown: true,
+  timePerPlayer: 15,
+  canCallYaniv: 7,
+  maxMatchPoints: 100,
+};
+
 export interface RoomCallbacks {
   roomFullCallback: (roomId: string) => void;
 }
@@ -61,12 +68,6 @@ export class RoomManager {
 
   private calculateMajorityConfig(votes: Record<string, Record<string, any>>) {
     // ערכים דיפולטים במקרה של תיקו
-    const defaultConfig = {
-      slapDown: true,
-      timePerPlayer: 15,
-      canCallYaniv: 7,
-      maxMatchPoints: 100,
-    };
 
     if (isEmpty(votes)) {
       return defaultConfig;
@@ -274,14 +275,7 @@ export class RoomManager {
   }
 
   // Quick game matchmaking
-  quickGame(
-    socket: Socket,
-    nickName: string,
-    slapDown = true,
-    timePerPlayer = 15,
-    canCallYaniv = 7,
-    maxMatchPoints = 100
-  ): string | null {
+  quickGame(socket: Socket, nickName: string): string | null {
     if (!nickName) {
       socket.emit("room_error", { message: "Missing nickName." });
       return null;
@@ -300,12 +294,7 @@ export class RoomManager {
 
     this.rooms[roomId] = {
       players: [{ id: socket.id, nickName }],
-      config: {
-        slapDown,
-        timePerPlayer,
-        canCallYaniv,
-        maxMatchPoints,
-      },
+      config: defaultConfig,
       gameState: "waiting",
       createdAt: new Date(),
       votes: {},

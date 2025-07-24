@@ -367,6 +367,8 @@ export class GameManager {
 
     const card = game.deck.pop();
 
+    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+
     const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
       selectedCards,
       game.playerHands[playerId]
@@ -416,6 +418,7 @@ export class GameManager {
     const selectedCardsPositions = selectedCardsKeys
       .map((cardKey) => handsCardKeys.indexOf(cardKey))
       .filter((i) => i >= 0);
+
     const amountBefore = handsCardKeys.length;
     return { selectedCardsPositions, amountBefore };
   }
@@ -454,6 +457,8 @@ export class GameManager {
       return;
     }
 
+    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+
     const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
       selectedCards,
       game.playerHands[playerId]
@@ -465,6 +470,7 @@ export class GameManager {
       ...removeSelectedCards(game.playerHands[playerId], selectedCards),
       cardToPick,
     ];
+
     game.playerHands[playerId].sort((a, b) => a.value - b.value);
 
     game.pickupCards = selectedCards;

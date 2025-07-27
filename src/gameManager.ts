@@ -626,6 +626,11 @@ export class GameManager {
     }
 
     game.playersStats = playersStats;
+    const activePlayers = Object.entries(playersStats).filter(
+      ([, player]) => !player.lost
+    );
+    console.log("🚀 ~ GameManager ~ endRound ~ activePlayers:", activePlayers);
+
     this.io.to(roomId).emit("round_ended", {
       winnerId,
       playersStats,
@@ -634,13 +639,16 @@ export class GameManager {
       assafCaller,
       playerHands: game.playerHands,
     });
+    if (activePlayers.length === 1) {
+      this.endGame(roomId, activePlayers[0][0]); //TODO fix winner ID
+    } else {
+      const startGameTimeout = setTimeout(() => {
+        this.startNewRound(roomId, winnerId);
+        clearTimeout(startGameTimeout);
+      }, 3000 + (yanivCaller ? 3000 : 0) + (assafCaller ? 3000 : 0));
 
-    const startGameTimeout = setTimeout(() => {
-      this.startNewRound(roomId, winnerId);
-      clearTimeout(startGameTimeout);
-    }, 3000 + (yanivCaller ? 3000 : 0) + (assafCaller ? 3000 : 0));
-
-    console.log(`Round ended. winner: ${winnerId}`);
+      console.log(`Round ended. winner: ${winnerId}`);
+    }
   }
 
   private reshuffleDiscardPile(roomId: string): void {

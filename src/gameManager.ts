@@ -181,7 +181,7 @@ export class GameManager {
       playerHands: this.getPlayerHands(roomId),
       firstCard,
       users: room.players,
-      currentPlayerId: room.players[game.currentPlayer].id,
+      currentPlayerId: room.players[game.currentPlayer]?.id,
     });
 
     this.startPlayerTurn(roomId);

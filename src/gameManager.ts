@@ -384,7 +384,8 @@ export class GameManager {
       if (
         !disableSlapDown &&
         game.slapDown &&
-        isValidCardSet([...selectedCards, card])
+        isValidCardSet([...selectedCards, card]) &&
+        card.value !== 0
       ) {
         this.removeCurrentSlapDown(game);
         game.slapDownActiveFor = playerId;

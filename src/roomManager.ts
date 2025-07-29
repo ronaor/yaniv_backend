@@ -142,6 +142,8 @@ export class RoomManager {
     if (!room || room.gameState !== "waiting") {
       return;
     }
+    console.log("~ ~ room :", room);
+    console.log("~ ~ players :", room.players);
 
     const playerCount = room.players.length;
 
@@ -461,7 +463,6 @@ export class RoomManager {
     if (room.votes[nickName]) {
       delete room.votes[nickName];
     }
-    console.log("2", room.votes);
 
     this.io
       .to(roomId)
@@ -489,6 +490,7 @@ export class RoomManager {
     }
 
     if (isAdmin) {
+      console.log("IS ADmin Leaving");
       this.deleteRoom(roomId);
       return;
     }

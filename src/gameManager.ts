@@ -181,7 +181,7 @@ export class GameManager {
       playerHands: this.getPlayerHands(roomId),
       firstCard,
       users: room.players,
-      currentPlayerId: room.players[game.currentPlayer].id,
+      currentPlayerId: room.players[game.currentPlayer]?.id,
     });
 
     this.startPlayerTurn(roomId);
@@ -384,7 +384,8 @@ export class GameManager {
       if (
         !disableSlapDown &&
         game.slapDown &&
-        isValidCardSet([...selectedCards, card])
+        isValidCardSet([...selectedCards, card]) &&
+        card.value !== 0
       ) {
         this.removeCurrentSlapDown(game);
         game.slapDownActiveFor = playerId;

@@ -464,9 +464,12 @@ export class RoomManager {
       delete room.votes[nickName];
     }
 
-    this.io
-      .to(roomId)
-      .emit("player_left", { players: room.players, votes: room.votes });
+    this.io.to(roomId).emit("player_left", {
+      roomId,
+      playerId: socket.id,
+      players: room.players,
+      votes: room.votes,
+    });
     socket.leave(roomId);
 
     if (room.players.length === 0) {

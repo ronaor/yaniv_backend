@@ -124,6 +124,22 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
+  //leave_room
+  socket.on(
+    "player_left_from_game",
+    (data: { roomId: string; playerId: string }) => {
+      const roomId = roomManager.getPlayerRoom(socket.id);
+      gameManager.leaveGame(data.roomId, data.playerId);
+
+      if (roomId) {
+        const room = roomManager.getRoomState(roomId);
+        if (!room) {
+          gameManager.cleanupGame(roomId);
+        }
+      }
+    }
+  );
+
   // Complete turn by drawing (second part of turn)
   socket.on(
     "complete_turn",

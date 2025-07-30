@@ -4,9 +4,11 @@ import { RoomManager } from "./roomManager";
 import { Card, getCardKey, TurnAction } from "./cards";
 import { isValidCardSet } from "./gameRules";
 
+type PlayerStatusType = "active" | "lost" | "winner" | "playAgain" | "leave";
 type PlayerStatus = {
   score: number;
   lost: boolean;
+  playerStatus: PlayerStatusType;
 };
 
 export interface GameState {
@@ -77,7 +79,7 @@ export class GameManager {
       turnStartTime: new Date(),
       playersStats: room.players.reduce<Record<string, PlayerStatus>>(
         (obj, user) => {
-          obj[user.id] = { score: 0, lost: false };
+          obj[user.id] = { score: 0, lost: false, playerStatus: "active" };
           return obj;
         },
         {}
@@ -135,7 +137,10 @@ export class GameManager {
       !isUndefined(winnerId) && room.players.length //&& !room.players[winnerId].isLose TODO when call asaf but the scores is over then maxmuchpoint
         ? room.players.findIndex(
             (player) =>
-              winnerId === player.id && !game.playersStats[player.id].lost
+              winnerId === player.id &&
+              !game.playersStats[player.id].lost && //TODO Remove
+              game.playersStats[player.id].playerStatus !== "lost" &&
+              game.playersStats[player.id].playerStatus !== "leave"
           )
         : null;
 
@@ -161,7 +166,12 @@ export class GameManager {
 
     // Deal 5 cards to each player
     room.players.forEach((player) => {
-      if (player && !game.playersStats[player.id].lost) {
+      if (
+        player &&
+        !game.playersStats[player.id].lost &&
+        game.playersStats[player.id].playerStatus !== "lost" &&
+        game.playersStats[player.id].playerStatus !== "leave"
+      ) {
         gameState.playerHands[player.id] = [];
         for (let i = 0; i < 5; i++) {
           const card = gameState.deck.pop();
@@ -188,6 +198,20 @@ export class GameManager {
     return true;
   }
 
+  leaveGame(roomId: string, playerId: string): boolean {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+    console.log("LEAVE GAME");
+    if (!game || !room || game.gameEnded) {
+      return false;
+    }
+
+    game.playersStats[playerId].lost = true;
+    game.playersStats[playerId].playerStatus = "leave";
+    console.log("LEAVE GAME", game.playersStats[playerId]);
+
+    return true;
+  }
   // Create deck with 52 cards + 2 jokers
   private createDeck(): Card[] {
     const suits: Card["suit"][] = ["hearts", "diamonds", "clubs", "spades"];
@@ -554,7 +578,10 @@ export class GameManager {
     this.removeTimers(game);
 
     const scores = room.players.map((player) =>
-      player && !game.playersStats[player.id].lost
+      player &&
+      !game.playersStats[player.id].lost &&
+      game.playersStats[player.id].playerStatus !== "lost" &&
+      game.playersStats[player.id].playerStatus !== "leave"
         ? this.getHandValue(game.playerHands[player.id])
         : Infinity
     );
@@ -566,6 +593,8 @@ export class GameManager {
       const i = room.players.findIndex(
         (player) =>
           player &&
+          game.playersStats[player.id].playerStatus !== "lost" &&
+          game.playersStats[player.id].playerStatus !== "leave" &&
           !game.playersStats[player.id].lost &&
           player.id !== playerId &&
           this.getHandValue(game.playerHands[player.id]) === minValue
@@ -600,7 +629,12 @@ export class GameManager {
     const playersStats: Record<string, PlayerStatus> = game.playersStats;
 
     for (const p of room.players) {
-      if (!p || playersStats[p.id].lost) {
+      if (
+        !p ||
+        playersStats[p.id].lost ||
+        game.playersStats[p.id].playerStatus === "lost" ||
+        game.playersStats[p.id].playerStatus === "leave"
+      ) {
         continue;
       }
 
@@ -622,6 +656,7 @@ export class GameManager {
       }
       if (score > 25) {
         playersStats[p.id].lost = true;
+        playersStats[p.id].playerStatus = "lost";
       }
       playersStats[p.id].score = score;
     }
@@ -640,6 +675,7 @@ export class GameManager {
       assafCaller,
       playerHands: game.playerHands,
     });
+    console.log("🚀 ~ GameManager ~ endRound ~ activePlayers:", activePlayers);
     if (activePlayers.length === 1) {
       this.endGame(roomId, activePlayers[0][0]); //TODO fix winner ID
     } else {
@@ -679,7 +715,12 @@ export class GameManager {
     for (let i = 0; i < totalPlayers; i++) {
       nextIndex = (nextIndex + 1) % totalPlayers;
       const player = room.players[nextIndex];
-      if (player && !game.playersStats[player.id].lost) {
+      if (
+        player &&
+        !game.playersStats[player.id].lost &&
+        game.playersStats[player.id].playerStatus !== "leave" &&
+        game.playersStats[player.id].playerStatus !== "lost"
+      ) {
         game.currentPlayer = nextIndex;
         return;
       }

@@ -1,11 +1,11 @@
+import cors from "cors";
 import express, { Request, Response } from "express";
 import { createServer } from "http";
-import { Server, Socket } from "socket.io";
-import cors from "cors";
-import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
-import { GameManager } from "./gameManager";
-import { Card, TurnAction } from "./cards";
 import { networkInterfaces } from "os";
+import { Server, Socket } from "socket.io";
+import { Card, TurnAction } from "./cards";
+import { GameManager } from "./gameManager";
+import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
 
 const app = express();
 const server = createServer(app);
@@ -118,6 +118,36 @@ io.on("connection", (socket: Socket) => {
 
     if (roomId) {
       const room = roomManager.getRoomState(roomId);
+      if (!room) {
+        gameManager.cleanupGame(roomId);
+      }
+    }
+  });
+
+  //leave_room
+  socket.on(
+    "player_left_from_game",
+    (data: { roomId: string; playerId: string }) => {
+      const roomId = roomManager.getPlayerRoom(socket.id);
+      gameManager.leaveGame(data.roomId, data.playerId);
+
+      if (roomId) {
+        const room = roomManager.getRoomState(roomId);
+        if (!room) {
+          gameManager.cleanupGame(roomId);
+        }
+      }
+    }
+  );
+
+  //playAgain
+  socket.on("player_wants_to_play_again", (data: { playerId: string }) => {
+    const roomId = roomManager.getPlayerRoom(socket.id);
+
+    if (roomId) {
+      const room = roomManager.getRoomState(roomId);
+      gameManager.playAgain(roomId, socket.id);
+
       if (!room) {
         gameManager.cleanupGame(roomId);
       }

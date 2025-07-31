@@ -142,6 +142,8 @@ export class RoomManager {
     if (!room || room.gameState !== "waiting") {
       return;
     }
+    console.log("~ ~ room :", room);
+    console.log("~ ~ players :", room.players);
 
     const playerCount = room.players.length;
 
@@ -461,11 +463,13 @@ export class RoomManager {
     if (room.votes[nickName]) {
       delete room.votes[nickName];
     }
-    console.log("2", room.votes);
 
-    this.io
-      .to(roomId)
-      .emit("player_left", { players: room.players, votes: room.votes });
+    this.io.to(roomId).emit("player_left", {
+      roomId,
+      playerId: socket.id,
+      players: room.players,
+      votes: room.votes,
+    });
     socket.leave(roomId);
 
     if (room.players.length === 0) {
@@ -488,10 +492,11 @@ export class RoomManager {
       return;
     }
 
-    if (isAdmin) {
-      this.deleteRoom(roomId);
-      return;
-    }
+    // if (isAdmin) { //TODO FIX
+    //   console.log("IS ADmin Leaving");
+    //   this.deleteRoom(roomId);
+    //   return;
+    // }
     // const room = this.rooms[roomId];
 
     this.removePlayerFromRoom(socket, roomId, nickName);

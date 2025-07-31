@@ -22,7 +22,7 @@ export const isValidCardSet = (
   }
 
   // חוק שלישי: רצף של קלפים (מינימום 2)
-  if (cards.length >= 2 && isSequence(cards)) {
+  if (cards.length >= 3 && isSequence(cards)) {
     return true;
   }
 
@@ -32,7 +32,7 @@ export const isValidCardSet = (
 // בדיקה אם כל הקלפים זהים או ג'וקרים
 const isIdenticalCards = (cards: Card[]): boolean => {
   const nonJokerValues = cards
-    .filter((card) => !card.isJoker)
+    .filter((card) => card.value !== 0)
     .map((card) => card.value);
 
   // כל הקלפים הם ג'וקרים או כל הלא-ג'וקרים עם אותו ערך
@@ -44,7 +44,7 @@ const isIdenticalCards = (cards: Card[]): boolean => {
 
 // בדיקה אם הקלפים יוצרים רצף
 const isSequence = (cards: Card[]): boolean => {
-  const nonJokerCards = cards.filter((card) => !card.isJoker);
+  const nonJokerCards = cards.filter((card) => card.value !== 0);
 
   // בדוק אם כל הקלפים הלא-ג'וקרים מאותו צבע
   if (nonJokerCards.length > 1) {
@@ -58,7 +58,7 @@ const isSequence = (cards: Card[]): boolean => {
 };
 
 const canFormValidSequence = (cards: Card[]): boolean => {
-  const nonJokerCards = cards.filter((card) => !card.isJoker);
+  const nonJokerCards = cards.filter((card) => card.value !== 0);
   const jokerCount = cards.length - nonJokerCards.length;
 
   // כל הקלפים הם ג'וקרים - תמיד חוקי

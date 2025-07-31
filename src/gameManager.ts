@@ -1,6 +1,6 @@
 import { isUndefined } from "lodash";
 import { Server } from "socket.io";
-import { Card, getCardKey, TurnAction } from "./cards";
+import { Card, getCardKey, getCardValue, TurnAction } from "./cards";
 import { isValidCardSet } from "./gameRules";
 import { RoomManager } from "./roomManager";
 
@@ -238,29 +238,15 @@ export class GameManager {
     });
 
     // Add 2 jokers (marked as special cards)
-    deck.push({ suit: "hearts", value: 0, isJoker: true });
-    deck.push({ suit: "spades", value: 0, isJoker: true });
+    deck.push({ suit: "hearts", value: 0 });
+    deck.push({ suit: "spades", value: 0 });
 
     return deck;
   }
 
-  // Calculate card value for scoring
-  private getCardValue(card: Card): number {
-    if (card.isJoker) {
-      return 0;
-    }
-    if (card.value === 1) {
-      return 1;
-    } // Ace = 1
-    if (card.value >= 11) {
-      return 10;
-    } // J, Q, K = 10
-    return card.value; // 2-10 = face value
-  }
-
   // Calculate hand total
   private getHandValue(hand: Card[]): number {
-    return hand.reduce((sum, card) => sum + this.getCardValue(card), 0);
+    return hand.reduce((sum, card) => sum + getCardValue(card), 0);
   }
 
   private shuffleDeck(deck: Card[]): void {

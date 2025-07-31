@@ -1,14 +1,15 @@
 import { isUndefined } from "lodash";
 import { Server } from "socket.io";
-import { RoomManager } from "./roomManager";
 import { Card, getCardKey, TurnAction } from "./cards";
 import { isValidCardSet } from "./gameRules";
+import { RoomManager } from "./roomManager";
 
 type PlayerStatusType = "active" | "lost" | "winner" | "playAgain" | "leave";
 type PlayerStatus = {
   score: number;
   lost: boolean;
   playerStatus: PlayerStatusType;
+  playerName: string;
 };
 
 export interface GameState {
@@ -79,7 +80,12 @@ export class GameManager {
       turnStartTime: new Date(),
       playersStats: room.players.reduce<Record<string, PlayerStatus>>(
         (obj, user) => {
-          obj[user.id] = { score: 0, lost: false, playerStatus: "active" };
+          obj[user.id] = {
+            score: 0,
+            lost: false,
+            playerStatus: "active",
+            playerName: user.nickName,
+          };
           return obj;
         },
         {}
@@ -202,7 +208,7 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
     console.log("LEAVE GAME");
-    if (!game || !room || game.gameEnded) {
+    if (!game || !room) {
       return false;
     }
 
@@ -210,6 +216,13 @@ export class GameManager {
     game.playersStats[playerId].playerStatus = "leave";
     console.log("LEAVE GAME", game.playersStats[playerId]);
 
+    const activePlayers = Object.entries(game.playersStats).filter(
+      ([, player]) => !player.lost
+    );
+
+    if (activePlayers.length === 1) {
+      this.endGame(roomId, activePlayers[0][0]);
+    }
     return true;
   }
   // Create deck with 52 cards + 2 jokers
@@ -609,6 +622,42 @@ export class GameManager {
     return true;
   }
 
+  playAgain(roomId: string, playerId: string): boolean {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+    if (!game || !room) {
+      return false;
+    }
+
+    if (!game.gameEnded) {
+      return false;
+    }
+
+    game.playersStats[playerId].playerStatus = "playAgain";
+    this.io.to(roomId).emit("want_to_play_again", {
+      roomId,
+      playerId,
+      playersStats: game.playersStats,
+    });
+
+    const thereAllVotes = Object.values(game.playersStats).every(
+      (status) =>
+        status.playerStatus === "playAgain" || status.playerStatus === "leave"
+    );
+
+    const playAgainVotes = Object.values(game.playersStats).filter(
+      (status) => status.playerStatus === "playAgain"
+    );
+    if (thereAllVotes && playAgainVotes.length > 1) {
+      setTimeout(() => {
+        this.startGame(roomId);
+      }, 6000);
+      return true;
+    }
+
+    return false;
+  }
+
   // End round due to Yaniv call
   private endRound(
     roomId: string,
@@ -744,6 +793,7 @@ export class GameManager {
     this.io.to(roomId).emit("game_ended", {
       winner: winnerId,
       finalScores: this.calculateFinalScores(roomId),
+      playersStats: game.playersStats,
     });
   }
 

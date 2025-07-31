@@ -1,11 +1,11 @@
+import cors from "cors";
 import express, { Request, Response } from "express";
 import { createServer } from "http";
-import { Server, Socket } from "socket.io";
-import cors from "cors";
-import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
-import { GameManager } from "./gameManager";
-import { Card, TurnAction } from "./cards";
 import { networkInterfaces } from "os";
+import { Server, Socket } from "socket.io";
+import { Card, TurnAction } from "./cards";
+import { GameManager } from "./gameManager";
+import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
 
 const app = express();
 const server = createServer(app);
@@ -139,6 +139,20 @@ io.on("connection", (socket: Socket) => {
       }
     }
   );
+
+  //playAgain
+  socket.on("player_wants_to_play_again", (data: { playerId: string }) => {
+    const roomId = roomManager.getPlayerRoom(socket.id);
+
+    if (roomId) {
+      const room = roomManager.getRoomState(roomId);
+      gameManager.playAgain(roomId, socket.id);
+
+      if (!room) {
+        gameManager.cleanupGame(roomId);
+      }
+    }
+  });
 
   // Complete turn by drawing (second part of turn)
   socket.on(

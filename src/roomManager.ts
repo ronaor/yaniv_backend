@@ -492,11 +492,11 @@ export class RoomManager {
       return;
     }
 
-    if (isAdmin) {
-      console.log("IS ADmin Leaving");
-      this.deleteRoom(roomId);
-      return;
-    }
+    // if (isAdmin) { //TODO FIX
+    //   console.log("IS ADmin Leaving");
+    //   this.deleteRoom(roomId);
+    //   return;
+    // }
     // const room = this.rooms[roomId];
 
     this.removePlayerFromRoom(socket, roomId, nickName);

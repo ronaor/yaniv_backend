@@ -33,6 +33,7 @@ export interface GameState {
   slapDownActiveFor?: string;
   slapDownTimer?: NodeJS.Timeout;
   playersStats: Record<string, PlayerStatus>;
+  round: number;
 }
 
 function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
@@ -102,6 +103,7 @@ export class GameManager {
       slapDown: room.config.slapDown,
       slapDownActiveFor: undefined,
       slapDownTimer: undefined,
+      round: 0,
     };
 
     this.games[roomId] = gameState;
@@ -124,6 +126,7 @@ export class GameManager {
       playerHands: this.getPlayerHands(roomId),
       firstCard,
       currentPlayerId: room.players[0].id,
+      round: 0,
     });
 
     this.startPlayerTurn(roomId);
@@ -154,6 +157,8 @@ export class GameManager {
           )
         : null;
 
+    game.round += 1;
+
     const gameState: GameState = {
       currentPlayer: firstPlayer ?? 0,
       deck,
@@ -170,6 +175,7 @@ export class GameManager {
       slapDownTimer: undefined,
       slapDownActiveFor: undefined,
       playersStats: game.playersStats,
+      round: game.round,
     };
 
     this.games[roomId] = gameState;
@@ -202,6 +208,7 @@ export class GameManager {
       firstCard,
       users: room.players,
       currentPlayerId: room.players[game.currentPlayer]?.id,
+      round: game.round,
     });
 
     this.startPlayerTurn(roomId);
@@ -712,6 +719,8 @@ export class GameManager {
     }
 
     game.playersStats = playersStats;
+    this.games[roomId].playersStats = playersStats;
+
     const activePlayers = Object.entries(playersStats).filter(
       ([, player]) => !player.lost
     );

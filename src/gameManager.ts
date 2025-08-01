@@ -1,7 +1,11 @@
-import { isUndefined } from "lodash";
+import { isNull, isUndefined } from "lodash";
 import { Server } from "socket.io";
 import { Card, getCardKey, getCardValue, TurnAction } from "./cards";
-import { isValidCardSet } from "./gameRules";
+import {
+  findSequenceArrangement,
+  isValidCardSet,
+  sortCards,
+} from "./gameRules";
 import { RoomManager } from "./roomManager";
 
 type PlayerStatusType = "active" | "lost" | "winner" | "playAgain" | "leave";
@@ -336,16 +340,27 @@ export class GameManager {
 
     const { choice } = action;
 
+    const sortedSelectedCards = findSequenceArrangement(selectedCards);
+
+    if (isNull(sortedSelectedCards)) {
+      return false;
+    }
+
     if (choice === "deck") {
       event = this.drawFromDeck(
         roomId,
         playerId,
-        selectedCards,
+        sortedSelectedCards,
         disableSlapDown
       );
     } else if (choice === "pickup") {
       const { pickupIndex } = action;
-      event = this.pickupCard(roomId, playerId, pickupIndex, selectedCards);
+      event = this.pickupCard(
+        roomId,
+        playerId,
+        pickupIndex,
+        sortedSelectedCards
+      );
     }
 
     if (event) {
@@ -390,7 +405,7 @@ export class GameManager {
 
     const card = game.deck.pop();
 
-    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+    game.playerHands[playerId] = sortCards(game.playerHands[playerId]);
 
     const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
       selectedCards,
@@ -419,7 +434,7 @@ export class GameManager {
         this.removeCurrentSlapDown(game);
       }
       game.playerHands[playerId].push(card);
-      game.playerHands[playerId].sort((a, b) => a.value - b.value);
+      game.playerHands[playerId] = sortCards(game.playerHands[playerId]);
       this.games[roomId] = game;
 
       return {
@@ -481,7 +496,7 @@ export class GameManager {
       return;
     }
 
-    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+    game.playerHands[playerId] = sortCards(game.playerHands[playerId]);
 
     const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
       selectedCards,
@@ -826,7 +841,7 @@ export class GameManager {
     const playerHands: { [playerId: string]: Card[] } = {};
     Object.entries(game.playerHands).forEach(([playerId, hand]) => {
       // Sort cards by value ascending
-      const sortedHand = hand.slice().sort((a, b) => a.value - b.value);
+      const sortedHand = sortCards([...hand]);
       playerHands[playerId] = sortedHand;
     });
 

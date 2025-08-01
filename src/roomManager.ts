@@ -512,18 +512,6 @@ export class RoomManager {
     this.handleGameStartCountdown(roomId); // Re-evaluate timer
   }
 
-  // Handle disconnect
-  handleDisconnect(socket: Socket, nickName: string): void {
-    const roomId = this.playerRooms[socket.id];
-    if (!roomId) {
-      return;
-    }
-
-    this.removePlayerFromRoom(socket, roomId, nickName);
-    delete this.playerRooms[socket.id];
-    console.log(`Player ${socket.id} left room ${roomId} (disconnect)`);
-  }
-
   // Get room state
   getRoomState(roomId: string): Room | null {
     return this.rooms[roomId] || null;

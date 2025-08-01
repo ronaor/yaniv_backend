@@ -145,3 +145,99 @@ export const isCanPickupCard = (
   // ניתן לקחת רק את הקלף הראשון או האחרון
   return index === 0 || index === cardsLength - 1;
 };
+
+export function sortCards(cards: Card[]) {
+  const suitOrder = { spades: 0, hearts: 1, diamonds: 2, clubs: 3 };
+
+  return cards.sort((a, b) => {
+    if (a.value !== b.value) {
+      return a.value - b.value;
+    }
+    return suitOrder[a.suit] - suitOrder[b.suit];
+  });
+}
+
+export function findSequenceArrangement(cards: Card[]): Card[] | null {
+  if (!isValidCardSet(cards)) {
+    return null; // Invalid set
+  }
+
+  // If it's a valid sequence, arrange it properly
+  if (isSequence(cards)) {
+    return arrangeCardsInSequence(cards);
+  }
+
+  // If it's valid but not a sequence (identical cards or single card), just sort normally
+  return sortCards(cards.slice());
+}
+
+function arrangeCardsInSequence(cards: Card[]): Card[] {
+  const nonJokers = cards.filter((card) => card.value !== 0);
+  const jokers = cards.filter((card) => card.value === 0);
+
+  if (nonJokers.length === 0) {
+    return sortCards(cards.slice()); // All jokers, just sort normally
+  }
+
+  // Sort non-jokers by value
+  nonJokers.sort((a, b) => a.value - b.value);
+
+  const sequenceLength = cards.length;
+  const minKnownValue = nonJokers[0].value;
+  const maxKnownValue = nonJokers[nonJokers.length - 1].value;
+
+  // Try different starting positions for the sequence
+  const minStart = Math.max(1, maxKnownValue - sequenceLength + 1);
+  const maxStart = Math.min(14 - sequenceLength, minKnownValue);
+
+  for (let start = minStart; start <= maxStart; start++) {
+    const arrangement = tryArrangement(
+      cards,
+      nonJokers,
+      jokers,
+      start,
+      sequenceLength
+    );
+    if (arrangement) {
+      return arrangement;
+    }
+  }
+
+  // Fallback (shouldn't happen if isSequence was correct)
+  return sortCards(cards.slice());
+}
+
+function tryArrangement(
+  allCards: Card[],
+  nonJokers: Card[],
+  jokers: Card[],
+  start: number,
+  length: number
+): Card[] | null {
+  const sequence: (Card | null)[] = new Array(length).fill(null);
+
+  // Place non-jokers in their positions
+  for (const card of nonJokers) {
+    const pos = card.value - start;
+    if (pos < 0 || pos >= length || sequence[pos] !== null) {
+      return null; // Invalid position or conflict
+    }
+    sequence[pos] = card;
+  }
+
+  // Fill gaps with jokers
+  let jokerIndex = 0;
+  const result: Card[] = [];
+
+  for (let i = 0; i < length; i++) {
+    if (sequence[i] !== null) {
+      result.push(sequence[i]!);
+    } else if (jokerIndex < jokers.length) {
+      result.push(jokers[jokerIndex++]);
+    } else {
+      return null; // Not enough jokers
+    }
+  }
+
+  return jokerIndex === jokers.length ? result : null;
+}

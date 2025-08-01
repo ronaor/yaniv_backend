@@ -204,16 +204,6 @@ io.on("connection", (socket: Socket) => {
   //disconnect Handle disconnects
   socket.on("disconnect", () => {
     console.log(`Player disconnected: ${socket.id}`);
-    const roomId = roomManager.getPlayerRoom(socket.id);
-
-    roomManager.handleDisconnect(socket, socket.id);
-
-    if (roomId) {
-      const room = roomManager.getRoomState(roomId);
-      if (!room) {
-        gameManager.cleanupGame(roomId);
-      }
-    }
   });
 
   //start_private_game

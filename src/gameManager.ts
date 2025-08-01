@@ -1,7 +1,11 @@
-import { isUndefined } from "lodash";
+import { isNull, isUndefined } from "lodash";
 import { Server } from "socket.io";
-import { Card, getCardKey, TurnAction } from "./cards";
-import { isValidCardSet } from "./gameRules";
+import { Card, getCardKey, getCardValue, TurnAction } from "./cards";
+import {
+  findSequenceArrangement,
+  isValidCardSet,
+  sortCards,
+} from "./gameRules";
 import { RoomManager } from "./roomManager";
 
 type PlayerStatusType = "active" | "lost" | "winner" | "playAgain" | "leave";
@@ -28,6 +32,7 @@ export interface GameState {
   slapDownActiveFor?: string;
   slapDownTimer?: NodeJS.Timeout;
   playersStats: Record<string, PlayerStatus>;
+  round: number;
 }
 
 function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
@@ -96,6 +101,7 @@ export class GameManager {
       slapDown: room.config.slapDown,
       slapDownActiveFor: undefined,
       slapDownTimer: undefined,
+      round: 0,
     };
 
     this.games[roomId] = gameState;
@@ -118,6 +124,7 @@ export class GameManager {
       playerHands: this.getPlayerHands(roomId),
       firstCard,
       currentPlayerId: room.players[0].id,
+      round: 0,
     });
 
     this.startPlayerTurn(roomId);
@@ -147,6 +154,8 @@ export class GameManager {
           )
         : null;
 
+    game.round += 1;
+
     const gameState: GameState = {
       currentPlayer: firstPlayer ?? 0,
       deck,
@@ -163,6 +172,7 @@ export class GameManager {
       slapDownTimer: undefined,
       slapDownActiveFor: undefined,
       playersStats: game.playersStats,
+      round: game.round,
     };
 
     this.games[roomId] = gameState;
@@ -194,6 +204,7 @@ export class GameManager {
       firstCard,
       users: room.players,
       currentPlayerId: room.players[game.currentPlayer]?.id,
+      round: game.round,
     });
 
     this.startPlayerTurn(roomId);
@@ -213,29 +224,15 @@ export class GameManager {
     });
 
     // Add 2 jokers (marked as special cards)
-    deck.push({ suit: "hearts", value: 0, isJoker: true });
-    deck.push({ suit: "spades", value: 0, isJoker: true });
+    deck.push({ suit: "hearts", value: 0 });
+    deck.push({ suit: "spades", value: 0 });
 
     return deck;
   }
 
-  // Calculate card value for scoring
-  private getCardValue(card: Card): number {
-    if (card.isJoker) {
-      return 0;
-    }
-    if (card.value === 1) {
-      return 1;
-    } // Ace = 1
-    if (card.value >= 11) {
-      return 10;
-    } // J, Q, K = 10
-    return card.value; // 2-10 = face value
-  }
-
   // Calculate hand total
   private getHandValue(hand: Card[]): number {
-    return hand.reduce((sum, card) => sum + this.getCardValue(card), 0);
+    return hand.reduce((sum, card) => sum + getCardValue(card), 0);
   }
 
   private shuffleDeck(deck: Card[]): void {
@@ -325,16 +322,27 @@ export class GameManager {
 
     const { choice } = action;
 
+    const sortedSelectedCards = findSequenceArrangement(selectedCards);
+
+    if (isNull(sortedSelectedCards)) {
+      return false;
+    }
+
     if (choice === "deck") {
       event = this.drawFromDeck(
         roomId,
         playerId,
-        selectedCards,
+        sortedSelectedCards,
         disableSlapDown
       );
     } else if (choice === "pickup") {
       const { pickupIndex } = action;
-      event = this.pickupCard(roomId, playerId, pickupIndex, selectedCards);
+      event = this.pickupCard(
+        roomId,
+        playerId,
+        pickupIndex,
+        sortedSelectedCards
+      );
     }
 
     if (event) {
@@ -379,7 +387,7 @@ export class GameManager {
 
     const card = game.deck.pop();
 
-    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+    game.playerHands[playerId] = sortCards(game.playerHands[playerId]);
 
     const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
       selectedCards,
@@ -408,7 +416,7 @@ export class GameManager {
         this.removeCurrentSlapDown(game);
       }
       game.playerHands[playerId].push(card);
-      game.playerHands[playerId].sort((a, b) => a.value - b.value);
+      game.playerHands[playerId] = sortCards(game.playerHands[playerId]);
       this.games[roomId] = game;
 
       return {
@@ -470,7 +478,7 @@ export class GameManager {
       return;
     }
 
-    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+    game.playerHands[playerId] = sortCards(game.playerHands[playerId]);
 
     const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
       selectedCards,
@@ -710,6 +718,8 @@ export class GameManager {
     }
 
     game.playersStats = playersStats;
+    this.games[roomId].playersStats = playersStats;
+
     const activePlayers = Object.entries(playersStats).filter(
       ([, player]) =>
         player.playerStatus !== "lost" && player.playerStatus !== "leave"
@@ -838,7 +848,7 @@ export class GameManager {
     const playerHands: { [playerId: string]: Card[] } = {};
     Object.entries(game.playerHands).forEach(([playerId, hand]) => {
       // Sort cards by value ascending
-      const sortedHand = hand.slice().sort((a, b) => a.value - b.value);
+      const sortedHand = sortCards([...hand]);
       playerHands[playerId] = sortedHand;
     });
 

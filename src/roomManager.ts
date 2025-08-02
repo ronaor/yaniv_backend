@@ -30,6 +30,7 @@ const defaultConfig: RoomConfig = {
 
 export interface RoomCallbacks {
   roomFullCallback: (roomId: string) => void;
+  leaveGame: (roomId: string, playerId: string) => void;
 }
 
 export class RoomManager {
@@ -205,13 +206,12 @@ export class RoomManager {
     nickName: string,
     config: RoomConfig
   ): string | null {
-    const { slapDown, timePerPlayer, canCallYaniv, maxMatchPoints } = config;
+    const { slapDown, canCallYaniv, maxMatchPoints } = config;
 
-    if (!nickName || !timePerPlayer || !canCallYaniv || !maxMatchPoints) {
+    if (!nickName || !canCallYaniv || !maxMatchPoints) {
       socket.emit("room_error", {
         message: "Missing required fields.",
         nickName,
-        timePerPlayer,
         canCallYaniv,
         maxMatchPoints,
       });
@@ -230,7 +230,7 @@ export class RoomManager {
       players: [{ id: socket.id, nickName }],
       config: {
         slapDown,
-        timePerPlayer: timePerPlayer,
+        timePerPlayer: 15, // Default time per player
         canCallYaniv: canCallYaniv,
         maxMatchPoints: maxMatchPoints,
       },
@@ -465,8 +465,6 @@ export class RoomManager {
     }
 
     this.io.to(roomId).emit("player_left", {
-      roomId,
-      playerId: socket.id,
       players: room.players,
       votes: room.votes,
     });
@@ -501,6 +499,8 @@ export class RoomManager {
 
     this.removePlayerFromRoom(socket, roomId, nickName);
     delete this.playerRooms[socket.id];
+    this.callbacks.leaveGame(roomId, socket.id);
+
     console.log(`Player ${socket.id} left room ${roomId} (explicit leave)`);
 
     // Remove vote

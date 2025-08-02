@@ -22,6 +22,9 @@ const callbacks: RoomCallbacks = {
   roomFullCallback: function (roomId: string): void {
     gameManager.startGame(roomId);
   },
+  leaveGame: function (roomId: string, playerId: string): void {
+    gameManager.leaveGame(roomId, playerId);
+  },
 };
 
 // Initialize managers
@@ -123,22 +126,6 @@ io.on("connection", (socket: Socket) => {
       }
     }
   });
-
-  //leave_room
-  socket.on(
-    "player_left_from_game",
-    (data: { roomId: string; playerId: string }) => {
-      const roomId = roomManager.getPlayerRoom(socket.id);
-      gameManager.leaveGame(data.roomId, data.playerId);
-
-      if (roomId) {
-        const room = roomManager.getRoomState(roomId);
-        if (!room) {
-          gameManager.cleanupGame(roomId);
-        }
-      }
-    }
-  );
 
   //playAgain
   socket.on("player_wants_to_play_again", (data: { playerId: string }) => {

@@ -11,7 +11,6 @@ import { RoomManager } from "./roomManager";
 type PlayerStatusType = "active" | "lost" | "winner" | "playAgain" | "leave";
 type PlayerStatus = {
   score: number;
-  lost: boolean;
   playerStatus: PlayerStatusType;
   playerName: string;
 };
@@ -87,7 +86,6 @@ export class GameManager {
         (obj, user) => {
           obj[user.id] = {
             score: 0,
-            lost: false,
             playerStatus: "active",
             playerName: user.nickName,
           };
@@ -151,7 +149,6 @@ export class GameManager {
         ? room.players.findIndex(
             (player) =>
               winnerId === player.id &&
-              !game.playersStats[player.id].lost && //TODO Remove
               game.playersStats[player.id].playerStatus !== "lost" &&
               game.playersStats[player.id].playerStatus !== "leave"
           )
@@ -184,7 +181,6 @@ export class GameManager {
     room.players.forEach((player) => {
       if (
         player &&
-        !game.playersStats[player.id].lost &&
         game.playersStats[player.id].playerStatus !== "lost" &&
         game.playersStats[player.id].playerStatus !== "leave"
       ) {
@@ -215,27 +211,6 @@ export class GameManager {
     return true;
   }
 
-  leaveGame(roomId: string, playerId: string): boolean {
-    const game = this.games[roomId];
-    const room = this.roomManager.getRoomState(roomId);
-    console.log("LEAVE GAME");
-    if (!game || !room) {
-      return false;
-    }
-
-    game.playersStats[playerId].lost = true;
-    game.playersStats[playerId].playerStatus = "leave";
-    console.log("LEAVE GAME", game.playersStats[playerId]);
-
-    const activePlayers = Object.entries(game.playersStats).filter(
-      ([, player]) => !player.lost
-    );
-
-    if (activePlayers.length === 1) {
-      this.endGame(roomId, activePlayers[0][0]);
-    }
-    return true;
-  }
   // Create deck with 52 cards + 2 jokers
   private createDeck(): Card[] {
     const suits: Card["suit"][] = ["hearts", "diamonds", "clubs", "spades"];
@@ -600,7 +575,6 @@ export class GameManager {
 
     const scores = room.players.map((player) =>
       player &&
-      !game.playersStats[player.id].lost &&
       game.playersStats[player.id].playerStatus !== "lost" &&
       game.playersStats[player.id].playerStatus !== "leave"
         ? this.getHandValue(game.playerHands[player.id])
@@ -616,7 +590,6 @@ export class GameManager {
           player &&
           game.playersStats[player.id].playerStatus !== "lost" &&
           game.playersStats[player.id].playerStatus !== "leave" &&
-          !game.playersStats[player.id].lost &&
           player.id !== playerId &&
           this.getHandValue(game.playerHands[player.id]) === minValue
       );
@@ -642,7 +615,7 @@ export class GameManager {
     }
 
     game.playersStats[playerId].playerStatus = "playAgain";
-    this.io.to(roomId).emit("want_to_play_again", {
+    this.io.to(roomId).emit("set_playersStats_data", {
       roomId,
       playerId,
       playersStats: game.playersStats,
@@ -666,6 +639,34 @@ export class GameManager {
     return false;
   }
 
+  leaveGame(roomId: string, playerId: string): boolean {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+    console.log("LEAVE GAME");
+    if (!game || !room) {
+      return false;
+    }
+
+    game.playersStats[playerId].playerStatus = "leave";
+    console.log("LEAVE GAME", game.playersStats[playerId]);
+
+    const activePlayers = Object.entries(game.playersStats).filter(
+      ([, player]) =>
+        player.playerStatus !== "lost" && player.playerStatus !== "leave"
+    );
+
+    if (activePlayers.length === 1 && !game.gameEnded) {
+      this.endGame(roomId, activePlayers[0][0]);
+    } else {
+      this.io.to(roomId).emit("set_playersStats_data", {
+        roomId,
+        playerId,
+        playersStats: game.playersStats,
+      });
+    }
+
+    return true;
+  }
   // End round due to Yaniv call
   private endRound(
     roomId: string,
@@ -688,7 +689,6 @@ export class GameManager {
     for (const p of room.players) {
       if (
         !p ||
-        playersStats[p.id].lost ||
         game.playersStats[p.id].playerStatus === "lost" ||
         game.playersStats[p.id].playerStatus === "leave"
       ) {
@@ -712,7 +712,6 @@ export class GameManager {
         score -= 50;
       }
       if (score > 25) {
-        playersStats[p.id].lost = true;
         playersStats[p.id].playerStatus = "lost";
       }
       playersStats[p.id].score = score;
@@ -722,9 +721,9 @@ export class GameManager {
     this.games[roomId].playersStats = playersStats;
 
     const activePlayers = Object.entries(playersStats).filter(
-      ([, player]) => !player.lost
+      ([, player]) =>
+        player.playerStatus !== "lost" && player.playerStatus !== "leave"
     );
-    console.log("🚀 ~ GameManager ~ endRound ~ activePlayers:", activePlayers);
 
     this.io.to(roomId).emit("round_ended", {
       winnerId,
@@ -734,9 +733,8 @@ export class GameManager {
       assafCaller,
       playerHands: game.playerHands,
     });
-    console.log("🚀 ~ GameManager ~ endRound ~ activePlayers:", activePlayers);
     if (activePlayers.length === 1) {
-      this.endGame(roomId, activePlayers[0][0]); //TODO fix winner ID
+      this.endGame(roomId, activePlayers[0][0]);
     } else {
       const startGameTimeout = setTimeout(() => {
         this.startNewRound(roomId, winnerId);
@@ -776,7 +774,6 @@ export class GameManager {
       const player = room.players[nextIndex];
       if (
         player &&
-        !game.playersStats[player.id].lost &&
         game.playersStats[player.id].playerStatus !== "leave" &&
         game.playersStats[player.id].playerStatus !== "lost"
       ) {
@@ -790,6 +787,7 @@ export class GameManager {
   }
 
   private endGame(roomId: string, winnerId: string): void {
+    console.log("End Game ");
     const game = this.games[roomId];
     if (!game) {
       return;

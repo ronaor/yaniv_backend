@@ -717,12 +717,27 @@ export class GameManager {
       playersStats[p.id].score = score;
     }
 
+    const LOOK_MOMENT = 2000;
+    const totalDelay =
+      LOOK_MOMENT *
+        room.players.filter(
+          (p) => game.playersStats[p.id]?.playerStatus === "active"
+        ).length -
+      1;
+
     game.playersStats = playersStats;
     this.games[roomId].playersStats = playersStats;
 
-    const activePlayers = Object.entries(playersStats).filter(
-      ([, player]) =>
-        player.playerStatus !== "lost" && player.playerStatus !== "leave"
+    const lastActivePlayers = Object.entries(playersStats)
+      .filter(
+        ([, player]) =>
+          player.playerStatus !== "lost" && player.playerStatus !== "leave"
+      )
+      .map(([playerId]) => playerId);
+
+    console.log(
+      "🚀 ~ GameManager ~ endRound ~ activePlayers:",
+      lastActivePlayers
     );
 
     this.io.to(roomId).emit("round_ended", {
@@ -733,16 +748,16 @@ export class GameManager {
       assafCaller,
       playerHands: game.playerHands,
     });
-    if (activePlayers.length === 1) {
-      this.endGame(roomId, activePlayers[0][0]);
-    } else {
-      const startGameTimeout = setTimeout(() => {
-        this.startNewRound(roomId, winnerId);
-        clearTimeout(startGameTimeout);
-      }, 3000 + (yanivCaller ? 3000 : 0) + (assafCaller ? 3000 : 0));
 
-      console.log(`Round ended. winner: ${winnerId}`);
-    }
+    const finishTimeout = setTimeout(() => {
+      if (lastActivePlayers.length < 2) {
+        this.endGame(roomId, lastActivePlayers[0]);
+        console.log(`Round ended. winner: ${winnerId}`);
+      } else {
+        this.startNewRound(roomId, winnerId);
+      }
+      clearTimeout(finishTimeout);
+    }, LOOK_MOMENT + totalDelay);
   }
 
   private reshuffleDiscardPile(roomId: string): void {

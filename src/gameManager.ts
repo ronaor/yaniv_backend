@@ -615,6 +615,24 @@ export class GameManager {
     }
 
     game.playersStats[playerId].playerStatus = "playAgain";
+
+    this.updateVotesAndEvaluate(roomId, playerId);
+
+    return true;
+  }
+
+  private updateVotesAndEvaluate(roomId: string, playerId: string): boolean {
+    const game = this.games[roomId];
+    const room = this.roomManager.getRoomState(roomId);
+
+    if (!game || !room) {
+      return false;
+    }
+
+    if (!game.gameEnded) {
+      return false;
+    }
+
     this.io.to(roomId).emit("set_playersStats_data", {
       roomId,
       playerId,
@@ -629,14 +647,14 @@ export class GameManager {
     const playAgainVotes = Object.values(game.playersStats).filter(
       (status) => status.playerStatus === "playAgain"
     );
+
     if (thereAllVotes && playAgainVotes.length > 1) {
       setTimeout(() => {
         this.startGame(roomId);
       }, 6000);
-      return true;
     }
 
-    return false;
+    return true;
   }
 
   leaveGame(roomId: string, playerId: string): boolean {
@@ -650,21 +668,18 @@ export class GameManager {
     game.playersStats[playerId].playerStatus = "leave";
     console.log("LEAVE GAME", game.playersStats[playerId]);
 
-    const activePlayers = Object.entries(game.playersStats).filter(
-      ([, player]) =>
-        player.playerStatus !== "lost" && player.playerStatus !== "leave"
-    );
+    const lastActivePlayers = Object.entries(game.playersStats)
+      .filter(
+        ([, player]) =>
+          player.playerStatus !== "lost" && player.playerStatus !== "leave"
+      )
+      .map(([playerId]) => playerId);
 
-    if (activePlayers.length === 1 && !game.gameEnded) {
-      this.endGame(roomId, activePlayers[0][0]);
-    } else {
-      this.io.to(roomId).emit("set_playersStats_data", {
-        roomId,
-        playerId,
-        playersStats: game.playersStats,
-      });
+    if (lastActivePlayers.length === 1 && !game.gameEnded) {
+      this.endGame(roomId, lastActivePlayers[0]);
+    } else if (game.gameEnded) {
+      this.updateVotesAndEvaluate(roomId, playerId);
     }
-
     return true;
   }
   // End round due to Yaniv call
@@ -685,6 +700,10 @@ export class GameManager {
     const winnerId = assafCaller ?? yanivCaller;
 
     const playersStats: Record<string, PlayerStatus> = game.playersStats;
+
+    const roundPlayers = Object.entries(game.playersStats)
+      .filter(([_, pS]) => pS.playerStatus === "active")
+      .map(([playerId]) => playerId);
 
     for (const p of room.players) {
       if (
@@ -747,6 +766,7 @@ export class GameManager {
       yanivCaller,
       assafCaller,
       playerHands: game.playerHands,
+      roundPlayers,
     });
 
     const finishTimeout = setTimeout(() => {

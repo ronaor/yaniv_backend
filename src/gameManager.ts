@@ -487,12 +487,10 @@ export class GameManager {
 
     const cardToPick = game.pickupCards[cardIndex];
 
-    game.playerHands[playerId] = [
+    game.playerHands[playerId] = sortCards([
       ...removeSelectedCards(game.playerHands[playerId], selectedCards),
       cardToPick,
-    ];
-
-    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+    ]);
 
     game.pickupCards = selectedCards;
 

@@ -557,12 +557,10 @@ export class GameManager {
 
     const cardToPick = game.pickupCards[cardIndex];
 
-    game.playerHands[playerId] = [
+    game.playerHands[playerId] = sortCards([
       ...removeSelectedCards(game.playerHands[playerId], selectedCards),
       cardToPick,
-    ];
-
-    game.playerHands[playerId].sort((a, b) => a.value - b.value);
+    ]);
 
     game.pickupCards = selectedCards;
 
@@ -770,6 +768,7 @@ export class GameManager {
     const winnerId = assafCaller ?? yanivCaller;
 
     const playersStats: Record<string, PlayerStatus> = game.playersStats;
+    const playersRoundScore: Record<string, number[]> = {};
 
     const roundPlayers = Object.entries(game.playersStats)
       .filter(([_, pS]) => pS.playerStatus === "active")
@@ -784,26 +783,29 @@ export class GameManager {
         continue;
       }
 
-      let score: number = isUndefined(playersStats[p.id])
-        ? 0
-        : +playersStats[p.id].score;
-
-      if (p.id === yanivCaller && yanivCaller === winnerId) {
-        score += 0;
+      let score = 0;
+      if (p.id === yanivCaller) {
+        if (p.id !== winnerId) {
+          score += 30;
+        }
       } else {
         score += getHandValue(game.playerHands[p.id]);
       }
 
-      if (p.id === yanivCaller && yanivCaller !== winnerId) {
-        score += 30;
+      playersStats[p.id].score += score;
+      playersRoundScore[p.id] = [score];
+
+      if (
+        playersStats[p.id].score % 50 === 0 &&
+        playersStats[p.id].score !== 0
+      ) {
+        playersRoundScore[p.id] = playersRoundScore[p.id].concat([-50]);
+        playersStats[p.id].score -= 50;
       }
-      if (score % 50 === 0 && score !== 0) {
-        score -= 50;
-      }
-      if (score > 25) {
+
+      if (playersStats[p.id].score > game.maxMatchPoints) {
         playersStats[p.id].playerStatus = "lost";
       }
-      playersStats[p.id].score = score;
     }
 
     const LOOK_MOMENT = 2000;
@@ -837,6 +839,7 @@ export class GameManager {
       assafCaller,
       playerHands: game.playerHands,
       roundPlayers,
+      playersRoundScore,
     });
 
     const finishTimeout = setTimeout(() => {

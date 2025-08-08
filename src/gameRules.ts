@@ -57,34 +57,34 @@ const isSequence = (cards: Card[]): boolean => {
   return canFormValidSequence(cards);
 };
 
-const canFormValidSequence = (cards: Card[]): boolean => {
+export const canFormValidSequence = (cards: Card[]): boolean => {
   const nonJokerCards = cards.filter((card) => card.value !== 0);
   const jokerCount = cards.length - nonJokerCards.length;
 
-  // כל הקלפים הם ג'וקרים - תמיד חוקי
+  // 💡 בדיקת צבע אחיד (suit) – חובה ברצף
+  const suit = nonJokerCards[0]?.suit;
+  if (!nonJokerCards.every((card) => card.suit === suit)) return false;
+
+  // כל הקלפים הם ג'וקרים – תקף
   if (nonJokerCards.length === 0) return true;
 
-  // קבל ערכים ייחודיים וסדר אותם
+  // ערכים ייחודיים מסודרים
   const uniqueValues = [
     ...new Set(nonJokerCards.map((card) => card.value)),
   ].sort((a, b) => a - b);
 
-  // בדוק אם יש ערכים כפולים (לא חוקי לרצפים)
+  // אם יש כפילויות – נפסל
   if (uniqueValues.length !== nonJokerCards.length) {
     return false;
   }
 
-  // נסה למצוא רצף שמכיל את כל הקלפים הידועים
-  // הטווח המינימלי הנדרש
   const minRange = uniqueValues[uniqueValues.length - 1] - uniqueValues[0] + 1;
 
-  // אם הטווח גדול מכמות הקלפים - בלתי אפשרי
   if (minRange > cards.length) return false;
 
-  // נסה כל נקודת התחלה אפשרית
   const minStart = Math.max(1, uniqueValues[0] - jokerCount);
   const maxStart = Math.min(
-    14 - cards.length,
+    13 - cards.length + 1,
     uniqueValues[uniqueValues.length - 1]
   );
 

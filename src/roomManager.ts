@@ -1,8 +1,11 @@
 import { isEmpty } from "lodash";
 import { Server, Socket } from "socket.io";
+import { Difficulty } from "./bot/computerPlayer";
 export interface User {
   id: string;
   nickName: string;
+  isBot?: boolean;
+  difficulty?: "easy" | "medium" | "hard";
 }
 
 export interface RoomConfig {
@@ -525,5 +528,63 @@ export class RoomManager {
   // Get player's current room
   getPlayerRoom(socketId: string): string | undefined {
     return this.playerRooms[socketId];
+  }
+
+  createBotRoom(
+    socket: Socket,
+    nickName: string,
+    difficulty: Difficulty
+  ): string {
+    const roomId = this.generateRoomCode();
+
+    const humanPlayer = {
+      id: socket.id,
+      nickName,
+      isBot: false,
+    };
+
+    const numBots = difficulty === "easy" ? 1 : difficulty === "medium" ? 2 : 3;
+    const botPlayers = Array.from({ length: numBots }).map((_, i) => ({
+      id: `bot-${i}-${roomId}`,
+      nickName: `בוט ${i + 1}`,
+      isBot: true,
+      difficulty,
+    }));
+
+    this.rooms[roomId] = {
+      players: [humanPlayer, ...botPlayers],
+      config: {
+        //TODO Replace with user config
+        slapDown: true,
+        timePerPlayer: 15,
+        canCallYaniv: 7,
+        maxMatchPoints: 100,
+      },
+      votes: {},
+      gameState: "started",
+      createdAt: new Date(),
+    };
+
+    this.playerRooms[socket.id] = roomId;
+    socket.join(roomId);
+
+    // שליחת אישור לקליינט
+    socket.emit("room_created", {
+      roomId,
+      players: this.rooms[roomId].players,
+      config: this.rooms[roomId].config,
+    });
+
+    // התחלת המשחק מיד
+    this.io.to(roomId).emit("start_game", {
+      roomId,
+      config: this.rooms[roomId].config,
+      players: this.rooms[roomId].players,
+    });
+
+    // קריאה ל־GameManager להתחיל משחק
+    this.callbacks.roomFullCallback(roomId);
+
+    return roomId;
   }
 }

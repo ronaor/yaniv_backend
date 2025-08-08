@@ -721,12 +721,17 @@ export class GameManager {
       } else {
         score += this.getHandValue(game.playerHands[p.id]);
       }
-      if (score % 50 === 0 && score !== 0) {
-        score -= 50;
-      }
 
-      playersRoundScore[p.id] = score;
       playersStats[p.id].score += score;
+      playersRoundScore[p.id] = score;
+
+      if (
+        playersStats[p.id].score % 50 === 0 &&
+        playersStats[p.id].score !== 0
+      ) {
+        playersRoundScore[p.id] -= 50;
+        playersStats[p.id].score -= 50;
+      }
 
       if (playersStats[p.id].score > game.maxMatchPoints) {
         playersStats[p.id].playerStatus = "lost";

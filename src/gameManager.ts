@@ -698,7 +698,7 @@ export class GameManager {
     const winnerId = assafCaller ?? yanivCaller;
 
     const playersStats: Record<string, PlayerStatus> = game.playersStats;
-    const playersRoundScore: Record<string, number> = {};
+    const playersRoundScore: Record<string, number[]> = {};
 
     const roundPlayers = Object.entries(game.playersStats)
       .filter(([_, pS]) => pS.playerStatus === "active")
@@ -723,13 +723,13 @@ export class GameManager {
       }
 
       playersStats[p.id].score += score;
-      playersRoundScore[p.id] = score;
+      playersRoundScore[p.id] = [score];
 
       if (
         playersStats[p.id].score % 50 === 0 &&
         playersStats[p.id].score !== 0
       ) {
-        playersRoundScore[p.id] -= 50;
+        playersRoundScore[p.id] = playersRoundScore[p.id].concat([-50]);
         playersStats[p.id].score -= 50;
       }
 

@@ -1,6 +1,13 @@
 import { isNull, isUndefined } from "lodash";
 import { Server } from "socket.io";
-import { Card, getCardKey, getCardValue, TurnAction } from "./cards";
+import { ComputerPlayer, Difficulty } from "./bot/computerPlayer";
+import {
+  Card,
+  getCardKey,
+  getCardValue,
+  getHandValue,
+  TurnAction,
+} from "./cards";
 import {
   findSequenceArrangement,
   isValidCardSet,
@@ -230,11 +237,6 @@ export class GameManager {
     return deck;
   }
 
-  // Calculate hand total
-  private getHandValue(hand: Card[]): number {
-    return hand.reduce((sum, card) => sum + getCardValue(card), 0);
-  }
-
   private shuffleDeck(deck: Card[]): void {
     for (let i = deck.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -246,9 +248,7 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room) {
-      return;
-    }
+    if (!game || !room) return;
 
     if (game.turnTimer) {
       clearTimeout(game.turnTimer);
@@ -256,8 +256,78 @@ export class GameManager {
     }
 
     game.turnStartTime = new Date();
-    const currentPlayer = room.players[game.currentPlayer];
 
+    const currentPlayerIndex = game.currentPlayer;
+    const currentPlayer = room.players[currentPlayerIndex];
+
+    // 🤖 תור של בוט
+    if (currentPlayer?.isBot && currentPlayer.difficulty) {
+      const playerId = currentPlayer.id;
+      const hand = game.playerHands[playerId];
+      const pickupPile = game.pickupCards;
+      const difficulty = currentPlayer.difficulty;
+      const lastDiscarded = [...pickupPile];
+
+      // בדיקה אם יש הכרזת יניב לפני הכול
+      const handValue = getHandValue(hand);
+      if (handValue <= game.canCallYaniv) {
+        game.turnTimer = setTimeout(() => {
+          this.callYaniv(roomId, playerId);
+        }, 1000);
+        return;
+      }
+
+      // בדיקה האם כדאי לקחת קלף מהקופה
+      const pickupIndex = ComputerPlayer.decidePickupIndex(
+        hand,
+        pickupPile,
+        difficulty
+      );
+
+      const shouldPickup = pickupIndex !== null;
+      const pickupCard = shouldPickup ? pickupPile[pickupIndex!] : null;
+      const reservedValues = pickupCard ? [pickupCard.value] : [];
+
+      const selectedCards = ComputerPlayer.chooseCards(
+        hand,
+        pickupPile,
+        difficulty
+      );
+      ComputerPlayer.rememberDiscarded(selectedCards);
+
+      const action: TurnAction = shouldPickup
+        ? { choice: "pickup", pickupIndex: pickupIndex! }
+        : { choice: "deck" };
+
+      game.turnTimer = setTimeout(() => {
+        const result = this.completeTurn(
+          roomId,
+          playerId,
+          action,
+          selectedCards
+        );
+
+        const gameState = this.games[roomId];
+
+        // ⏱️ השהייה לפני SlapDown
+        if (
+          result &&
+          gameState.slapDown &&
+          gameState.slapDownActiveFor === playerId
+        ) {
+          const lastCard = gameState.playerHands[playerId].slice(-1)[0];
+          if (lastCard) {
+            setTimeout(() => {
+              this.onSlapDown(roomId, playerId, lastCard);
+            }, 1500); // ← השהייה של 1.5 שניות
+          }
+        }
+      }, 2500);
+
+      return;
+    }
+
+    // 👤 שחקן רגיל
     if (currentPlayer) {
       this.io.to(roomId).emit("turn_started", {
         currentPlayerId: currentPlayer.id,
@@ -561,7 +631,7 @@ export class GameManager {
       return false;
     }
 
-    const handValue = this.getHandValue(game.playerHands[playerId]);
+    const handValue = getHandValue(game.playerHands[playerId]);
 
     // Can only call Yaniv with 7 points or less
     if (handValue > 7) {
@@ -577,7 +647,7 @@ export class GameManager {
       player &&
       game.playersStats[player.id].playerStatus !== "lost" &&
       game.playersStats[player.id].playerStatus !== "leave"
-        ? this.getHandValue(game.playerHands[player.id])
+        ? getHandValue(game.playerHands[player.id])
         : Infinity
     );
     const minValue = Math.min(...scores);
@@ -591,7 +661,7 @@ export class GameManager {
           game.playersStats[player.id].playerStatus !== "lost" &&
           game.playersStats[player.id].playerStatus !== "leave" &&
           player.id !== playerId &&
-          this.getHandValue(game.playerHands[player.id]) === minValue
+          getHandValue(game.playerHands[player.id]) === minValue
       );
       scores.findIndex((score) => score === minValue);
       const winnerId = room.players[i]?.id;
@@ -721,7 +791,7 @@ export class GameManager {
       if (p.id === yanivCaller && yanivCaller === winnerId) {
         score += 0;
       } else {
-        score += this.getHandValue(game.playerHands[p.id]);
+        score += getHandValue(game.playerHands[p.id]);
       }
 
       if (p.id === yanivCaller && yanivCaller !== winnerId) {
@@ -848,7 +918,7 @@ export class GameManager {
 
     const scores: { [playerId: string]: number } = {};
     Object.entries(game.playerHands).forEach(([playerId, hand]) => {
-      scores[playerId] = this.getHandValue(hand);
+      scores[playerId] = getHandValue(hand);
     });
 
     return scores;

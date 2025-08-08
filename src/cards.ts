@@ -16,3 +16,7 @@ export type TurnAction =
   | { choice: "pickup"; pickupIndex: number };
 
 export const getCardKey = (card: Card) => `${card.suit}-${card.value}`;
+
+export const getHandValue = (hand: Card[]): number => {
+  return hand.reduce((sum, card) => sum + getCardValue(card), 0);
+};

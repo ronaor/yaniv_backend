@@ -3,6 +3,7 @@ import express, { Request, Response } from "express";
 import { createServer } from "http";
 import { networkInterfaces } from "os";
 import { Server, Socket } from "socket.io";
+import { Difficulty } from "./bot/computerPlayer";
 import { Card, TurnAction } from "./cards";
 import { GameManager } from "./gameManager";
 import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
@@ -209,6 +210,14 @@ io.on("connection", (socket: Socket) => {
       gameManager.startGame(roomId);
     }
   });
+
+  socket.on(
+    "create_bot_room",
+    (data: { nickName: string; difficulty: Difficulty }) => {
+      const { nickName, difficulty } = data;
+      roomManager.createBotRoom(socket, nickName, difficulty);
+    }
+  );
 });
 
 const getLocalIP = () =>

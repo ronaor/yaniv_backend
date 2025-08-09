@@ -126,15 +126,20 @@ export class GameManager {
       }
     });
 
+    const totalDelay = 2100 + room.players.length * 500;
+
     this.io.to(roomId).emit("game_initialized", {
       gameState: this.getPublicGameState(roomId),
       playerHands: this.getPlayerHands(roomId),
       firstCard,
       currentPlayerId: room.players[0].id,
       round: 0,
+      startDelay: totalDelay,
     });
 
-    this.startPlayerTurn(roomId);
+    this.games[roomId].turnTimer = setTimeout(() => {
+      this.startPlayerTurn(roomId);
+    }, totalDelay);
     return true;
   }
 
@@ -204,6 +209,12 @@ export class GameManager {
       ? room.players.findIndex((player) => player.id === winnerId)
       : game.currentPlayer;
 
+    const playersActiveLength = Object.values(gameState.playerHands).filter(
+      (hands) => hands.length > 0
+    ).length;
+
+    const totalDelay = 2600 + playersActiveLength * 500;
+
     this.io.to(roomId).emit("new_round", {
       playersStats: game.playersStats,
       gameState: this.getPublicGameState(roomId),
@@ -212,9 +223,13 @@ export class GameManager {
       users: room.players,
       currentPlayerId: room.players[game.currentPlayer]?.id,
       round: game.round,
+      startDelay: totalDelay,
     });
 
-    this.startPlayerTurn(roomId);
+    game.turnTimer = setTimeout(() => {
+      this.startPlayerTurn(roomId);
+    }, totalDelay);
+
     return true;
   }
 

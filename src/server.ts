@@ -213,9 +213,9 @@ io.on("connection", (socket: Socket) => {
 
   socket.on(
     "create_bot_room",
-    (data: { nickName: string; difficulty: Difficulty }) => {
-      const { nickName, difficulty } = data;
-      roomManager.createBotRoom(socket, nickName, difficulty);
+    (data: { nickName: string; config: RoomConfig }) => {
+      const { nickName, config } = data;
+      roomManager.createBotRoom(socket, nickName, config);
     }
   );
 });

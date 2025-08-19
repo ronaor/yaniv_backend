@@ -1,4 +1,4 @@
-import { isEmpty } from "lodash";
+import { isEmpty, isUndefined } from "lodash";
 import { Server, Socket } from "socket.io";
 import { Difficulty } from "./bot/computerPlayer";
 export interface User {
@@ -13,6 +13,8 @@ export interface RoomConfig {
   timePerPlayer: number;
   canCallYaniv: number;
   maxMatchPoints: number;
+  numberOfPlayers?: number;
+  difficulty?: "Easy" | "Medium" | "Hard";
 }
 
 export interface Room {
@@ -530,11 +532,7 @@ export class RoomManager {
     return this.playerRooms[socketId];
   }
 
-  createBotRoom(
-    socket: Socket,
-    nickName: string,
-    difficulty: Difficulty
-  ): string {
+  createBotRoom(socket: Socket, nickName: string, config: RoomConfig): string {
     const roomId = this.generateRoomCode();
 
     const humanPlayer = {
@@ -543,7 +541,23 @@ export class RoomManager {
       isBot: false,
     };
 
-    const numBots = difficulty === "easy" ? 1 : difficulty === "medium" ? 2 : 3;
+    if (
+      isUndefined(config) ||
+      isUndefined(config.numberOfPlayers) ||
+      isUndefined(config.difficulty)
+    ) {
+      return roomId;
+    }
+
+    const {
+      difficulty,
+      numberOfPlayers,
+      canCallYaniv,
+      maxMatchPoints,
+      slapDown,
+    } = config;
+
+    const numBots = numberOfPlayers - 1;
     const botPlayers = Array.from({ length: numBots }).map((_, i) => ({
       id: `bot-${i}-${roomId}`,
       nickName: `בוט ${i + 1}`,
@@ -554,11 +568,12 @@ export class RoomManager {
     this.rooms[roomId] = {
       players: [humanPlayer, ...botPlayers],
       config: {
-        //TODO Replace with user config
-        slapDown: true,
         timePerPlayer: 15,
-        canCallYaniv: 7,
-        maxMatchPoints: 100,
+        slapDown,
+        canCallYaniv,
+        maxMatchPoints,
+        difficulty,
+        numberOfPlayers,
       },
       votes: {},
       gameState: "started",

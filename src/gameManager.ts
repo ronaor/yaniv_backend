@@ -40,6 +40,7 @@ export interface GameState {
   slapDownTimer?: NodeJS.Timeout;
   playersStats: Record<string, PlayerStatus>;
   round: number;
+  slapDownCard?: Card;
 }
 
 function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
@@ -144,7 +145,6 @@ export class GameManager {
   }
 
   startNewRound(roomId: string, winnerId: string): boolean {
-    // console.log(" winnerId:", winnerId);
     const room = this.roomManager.getRoomState(roomId);
     const game = this.games[roomId];
     if (!room || room.gameState !== "started") {
@@ -275,6 +275,12 @@ export class GameManager {
     const currentPlayerIndex = game.currentPlayer;
     const currentPlayer = room.players[currentPlayerIndex];
 
+    if (game.playerHands[currentPlayer.id]?.length === 0) {
+      // no cards call yaniv auto
+      this.callYaniv(roomId, currentPlayer.id);
+      return;
+    }
+
     // 🤖 תור של בוט
     if (currentPlayer?.isBot && currentPlayer.difficulty) {
       const playerId = currentPlayer.id;
@@ -305,7 +311,7 @@ export class GameManager {
 
       const selectedCards = ComputerPlayer.chooseCards(
         hand,
-        pickupPile,
+        pickupIndex !== null ? [pickupPile[pickupIndex]] : pickupPile,
         difficulty
       );
       ComputerPlayer.rememberDiscarded(selectedCards);
@@ -324,17 +330,16 @@ export class GameManager {
 
         const gameState = this.games[roomId];
 
-        // ⏱️ השהייה לפני SlapDown
         if (
-          result &&
+          gameState &&
           gameState.slapDown &&
           gameState.slapDownActiveFor === playerId
         ) {
-          const lastCard = gameState.playerHands[playerId].slice(-1)[0];
-          if (lastCard) {
+          const slapCard = gameState.slapDownCard;
+          if (slapCard) {
             setTimeout(() => {
-              this.onSlapDown(roomId, playerId, lastCard);
-            }, 1500); // ← השהייה של 1.5 שניות
+              this.onSlapDown(roomId, playerId, slapCard);
+            }, 2000);
           }
         }
       }, 2500);
@@ -489,11 +494,11 @@ export class GameManager {
       if (
         !disableSlapDown &&
         game.slapDown &&
-        isValidCardSet([...selectedCards, card]) &&
-        card.value !== 0
+        this.canSlapDown(selectedCards, card)
       ) {
         this.removeCurrentSlapDown(game);
         game.slapDownActiveFor = playerId;
+        game.slapDownCard = card;
         game.slapDownTimer = setTimeout(() => {
           this.removeCurrentSlapDown(game);
         }, 3000);
@@ -534,7 +539,9 @@ export class GameManager {
       clearTimeout(game.slapDownTimer);
       game.slapDownTimer = undefined;
       game.slapDownActiveFor = undefined;
+      game.slapDownCard = undefined;
     }
+    if (game) game.slapDownCard = undefined;
   }
 
   // Pick up card from last played cards
@@ -743,13 +750,11 @@ export class GameManager {
   leaveGame(roomId: string, playerId: string): boolean {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
-    console.log("LEAVE GAME");
     if (!game || !room) {
       return false;
     }
 
     game.playersStats[playerId].playerStatus = "leave";
-    console.log("LEAVE GAME", game.playersStats[playerId]);
 
     const lastActivePlayers = Object.entries(game.playersStats)
       .filter(
@@ -774,9 +779,7 @@ export class GameManager {
     const game = this.games[roomId];
     const room = this.roomManager.getRoomState(roomId);
 
-    if (!game || !room) {
-      return;
-    }
+    if (!game || !room) return;
 
     this.removeTimers(game);
 
@@ -794,14 +797,13 @@ export class GameManager {
         !p ||
         game.playersStats[p.id].playerStatus === "lost" ||
         game.playersStats[p.id].playerStatus === "leave"
-      ) {
+      )
         continue;
-      }
 
       let score = 0;
       if (p.id === yanivCaller) {
         if (p.id !== winnerId) {
-          score += 30;
+          score += 30 + getHandValue(game.playerHands[p.id]);
         }
       } else {
         score += getHandValue(game.playerHands[p.id]);
@@ -841,10 +843,48 @@ export class GameManager {
       )
       .map(([playerId]) => playerId);
 
-    console.log(
-      "🚀 ~ GameManager ~ endRound ~ activePlayers:",
-      lastActivePlayers
-    );
+    const pickWinnerByScore = (preferAssaf?: string): string => {
+      const candidates = room.players.filter(
+        (p) => p && playersStats[p.id].playerStatus !== "leave"
+      );
+      let minScore = Infinity;
+      for (const p of candidates) {
+        const s = playersStats[p.id].score;
+        if (s < minScore) minScore = s;
+      }
+      const minCandidates = candidates.filter(
+        (p) => playersStats[p.id].score === minScore
+      );
+
+      // שובר שוויון: מי שאמר אסף (אם קיים והוא בין המועמדים)
+      if (preferAssaf) {
+        const found = minCandidates.find((p) => p.id === preferAssaf);
+        if (found) return found.id;
+      }
+      return minCandidates[0].id;
+    };
+    const activeHumans = room.players.filter(
+      (p) =>
+        p && game.playersStats[p.id]?.playerStatus === "active" && !p.difficulty
+    ).length;
+
+    if (activeHumans === 0 && !game.gameEnded) {
+      const remainingActive = room.players.filter(
+        (p) => p && game.playersStats[p.id]?.playerStatus === "active"
+      );
+
+      if (remainingActive.length === 0) {
+        const winnerIdFallback = pickWinnerByScore(assafCaller);
+        this.endGame(roomId, winnerIdFallback);
+        return;
+      } else {
+        const winner = remainingActive.sort(
+          (a, b) => playersStats[a.id].score - playersStats[b.id].score
+        )[0];
+        this.endGame(roomId, winner.id);
+        return;
+      }
+    }
 
     this.io.to(roomId).emit("round_ended", {
       winnerId,
@@ -859,7 +899,14 @@ export class GameManager {
 
     const finishTimeout = setTimeout(() => {
       if (lastActivePlayers.length < 2) {
-        this.endGame(roomId, lastActivePlayers[0]);
+        if (lastActivePlayers.length === 1) {
+          // נשאר רק אחד פעיל
+          this.endGame(roomId, lastActivePlayers[0]);
+        } else {
+          // ✅ נשארו 0 פעילים → בחר מנצח לפי ניקוד; בשוויון – מי שאמר אסף
+          const winnerIdFallback = pickWinnerByScore(assafCaller);
+          this.endGame(roomId, winnerIdFallback);
+        }
         console.log(`Round ended. winner: ${winnerId}`);
       } else {
         this.startNewRound(roomId, winnerId);
@@ -910,7 +957,6 @@ export class GameManager {
   }
 
   private endGame(roomId: string, winnerId: string): void {
-    console.log("End Game ");
     const game = this.games[roomId];
     if (!game) {
       return;
@@ -996,5 +1042,49 @@ export class GameManager {
       game.turnTimer = undefined;
     }
     this.removeCurrentSlapDown(game);
+  }
+
+  private canSlapDown(selectedCards: Card[], drawn: Card): boolean {
+    if (!drawn) return false;
+
+    // (1) קלף בודד — רק אותו דרג בדיוק. ג'וקר → רק אם גם שנמשך ג'וקר.
+    if (selectedCards.length === 1) {
+      const c = selectedCards[0];
+      if (c.value === 0) return drawn.value === 0; // Joker→Joker בלבד
+      return drawn.value === c.value; // 10≠K
+    }
+
+    // (2) רצף נקי באותה צורה — drawn מאריך בקצה
+    if (selectedCards.length >= 3 && drawn.value !== 0) {
+      // ללא ג'וקרים
+      if (!selectedCards.every((c) => c.value !== 0)) return false;
+      const suit = selectedCards[0].suit;
+      if (!selectedCards.every((c) => c.suit === suit)) return false;
+
+      const values = selectedCards.map((c) => c.value).sort((a, b) => a - b);
+      for (let i = 1; i < values.length; i++) {
+        if (values[i] !== values[i - 1] + 1) return false;
+      }
+
+      if (drawn.suit !== suit) return false;
+      const min = values[0],
+        max = values[values.length - 1];
+      return (
+        (drawn.value === min - 1 && drawn.value >= 1) ||
+        (drawn.value === max + 1 && drawn.value <= 13)
+      );
+    }
+
+    // (3) סט (זוג/שלישייה) נקי — מותר רק אם drawn הוא מאותה הדרגה בדיוק
+    const sameRankNoJokers =
+      selectedCards.length >= 2 &&
+      selectedCards.every((c) => c.value !== 0) &&
+      selectedCards.every((c) => c.value === selectedCards[0].value);
+
+    if (sameRankNoJokers) {
+      return drawn.value === selectedCards[0].value;
+    }
+
+    return false;
   }
 }

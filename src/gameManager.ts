@@ -213,7 +213,7 @@ export class GameManager {
       (hands) => hands.length > 0
     ).length;
 
-    const totalDelay = 2600 + playersActiveLength * 500;
+    const totalDelay = 2600 + playersActiveLength * 700;
 
     this.io.to(roomId).emit("new_round", {
       playersStats: game.playersStats,
@@ -494,7 +494,7 @@ export class GameManager {
       if (
         !disableSlapDown &&
         game.slapDown &&
-        this.canSlapDown(selectedCards, card)
+        !!this.slapDownValidFrom(selectedCards, card)
       ) {
         this.removeCurrentSlapDown(game);
         game.slapDownActiveFor = playerId;
@@ -610,18 +610,32 @@ export class GameManager {
       return false;
     }
 
-    const selectedCardsPositions = [
-      game.playerHands[playerId].findIndex(
-        (c) => getCardKey(c) === getCardKey(card)
-      ),
-    ];
-    const amountBefore = game.playerHands[playerId].length;
+    const slapDownFrom = this.slapDownValidFrom(game.pickupCards, card);
+    switch (slapDownFrom) {
+      case "left": {
+        game.pickupCards = [card, ...game.pickupCards];
+        break;
+      }
+      case "right": {
+        game.pickupCards.push(card);
+        break;
+      }
+      default:
+        return false;
+    }
+
+    // this is the relative indexes of the pickup cards to player hands,
+    const { selectedCardsPositions, amountBefore } = this.getStateBeforeAction(
+      game.pickupCards,
+      game.playerHands[playerId]
+    );
 
     game.playerHands[playerId] = removeSelectedCards(
       game.playerHands[playerId],
       [card]
     );
-    game.pickupCards = [card];
+
+    this.removeCurrentSlapDown(game);
 
     this.io.to(roomId).emit("player_drew", {
       playerId,
@@ -1044,35 +1058,40 @@ export class GameManager {
     this.removeCurrentSlapDown(game);
   }
 
-  private canSlapDown(selectedCards: Card[], drawn: Card): boolean {
-    if (!drawn) return false;
+  private slapDownValidFrom(
+    selectedCards: Card[],
+    drawn: Card
+  ): undefined | "left" | "right" {
+    if (!drawn) return undefined;
 
     // (1) קלף בודד — רק אותו דרג בדיוק. ג'וקר → רק אם גם שנמשך ג'וקר.
     if (selectedCards.length === 1) {
       const c = selectedCards[0];
-      if (c.value === 0) return drawn.value === 0; // Joker→Joker בלבד
-      return drawn.value === c.value; // 10≠K
+      if (c.value === 0) return drawn.value === 0 ? "right" : undefined; // Joker→Joker בלבד
+      return drawn.value === c.value ? "right" : undefined; // 10≠K
     }
 
     // (2) רצף נקי באותה צורה — drawn מאריך בקצה
     if (selectedCards.length >= 3 && drawn.value !== 0) {
       // ללא ג'וקרים
-      if (!selectedCards.every((c) => c.value !== 0)) return false;
+      if (!selectedCards.every((c) => c.value !== 0)) return undefined;
       const suit = selectedCards[0].suit;
-      if (!selectedCards.every((c) => c.suit === suit)) return false;
+      if (!selectedCards.every((c) => c.suit === suit)) return undefined;
 
       const values = selectedCards.map((c) => c.value).sort((a, b) => a - b);
       for (let i = 1; i < values.length; i++) {
-        if (values[i] !== values[i - 1] + 1) return false;
+        if (values[i] !== values[i - 1] + 1) return undefined;
       }
 
-      if (drawn.suit !== suit) return false;
+      if (drawn.suit !== suit) return undefined;
       const min = values[0],
         max = values[values.length - 1];
-      return (
-        (drawn.value === min - 1 && drawn.value >= 1) ||
-        (drawn.value === max + 1 && drawn.value <= 13)
-      );
+
+      // Check position: left for lower value, right for higher value
+      if (drawn.value === min - 1 && drawn.value >= 1) return "left";
+      if (drawn.value === max + 1 && drawn.value <= 13) return "right";
+
+      return undefined;
     }
 
     // (3) סט (זוג/שלישייה) נקי — מותר רק אם drawn הוא מאותה הדרגה בדיוק
@@ -1082,9 +1101,9 @@ export class GameManager {
       selectedCards.every((c) => c.value === selectedCards[0].value);
 
     if (sameRankNoJokers) {
-      return drawn.value === selectedCards[0].value;
+      return drawn.value === selectedCards[0].value ? "right" : undefined;
     }
 
-    return false;
+    return undefined;
   }
 }

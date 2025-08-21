@@ -325,7 +325,8 @@ export class GameManager {
           roomId,
           playerId,
           action,
-          selectedCards
+          selectedCards,
+          difficulty === Difficulty.Easy
         );
 
         const gameState = this.games[roomId];

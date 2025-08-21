@@ -5,7 +5,7 @@ export interface User {
   id: string;
   nickName: string;
   isBot?: boolean;
-  difficulty?: "easy" | "medium" | "hard";
+  difficulty?: Difficulty;
 }
 
 export interface RoomConfig {
@@ -14,7 +14,7 @@ export interface RoomConfig {
   canCallYaniv: number;
   maxMatchPoints: number;
   numberOfPlayers?: number;
-  difficulty?: "Easy" | "Medium" | "Hard";
+  difficulty?: Difficulty;
 }
 
 export interface Room {

@@ -157,6 +157,19 @@ export function sortCards(cards: Card[]) {
   });
 }
 
+function isAlreadyValidSequence(cards: Card[]) {
+  const firstNonJokerIndex = cards.findIndex((c) => c.value !== 0);
+  if (firstNonJokerIndex === -1) return true;
+
+  const firstNonJokerValue = cards[firstNonJokerIndex].value;
+  const sequenceStart = firstNonJokerValue - firstNonJokerIndex;
+
+  return cards.every((card, index) => {
+    const expectedValue = sequenceStart + index;
+    return card.value === expectedValue || card.value === 0;
+  });
+}
+
 export function findSequenceArrangement(cards: Card[]): Card[] | null {
   if (!isValidCardSet(cards)) {
     return null; // Invalid set
@@ -164,11 +177,13 @@ export function findSequenceArrangement(cards: Card[]): Card[] | null {
 
   // If it's a valid sequence, arrange it properly
   if (isSequence(cards)) {
+    if (isAlreadyValidSequence(cards)) {
+      return [...cards];
+    }
     return arrangeCardsInSequence(cards);
   }
-
-  // If it's valid but not a sequence (identical cards or single card), just sort normally
-  return sortCards(cards.slice());
+  // If it's valid but not a sequence (identical cards or single card), no need to sort
+  return [...cards];
 }
 
 function arrangeCardsInSequence(cards: Card[]): Card[] {

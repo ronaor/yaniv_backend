@@ -1,18 +1,8 @@
 import { isNull, isUndefined } from "lodash";
 import { Server } from "socket.io";
 import { ComputerPlayer, Difficulty } from "./bot/computerPlayer";
-import {
-  Card,
-  getCardKey,
-  getCardValue,
-  getHandValue,
-  TurnAction,
-} from "./cards";
-import {
-  findSequenceArrangement,
-  isValidCardSet,
-  sortCards,
-} from "./gameRules";
+import { Card, getCardKey, getHandValue, TurnAction } from "./cards";
+import { findSequenceArrangement, sortCards } from "./gameRules";
 import { RoomManager } from "./roomManager";
 
 type PlayerStatusType = "active" | "lost" | "winner" | "playAgain" | "leave";

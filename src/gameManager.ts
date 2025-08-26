@@ -802,6 +802,8 @@ export class GameManager {
       .filter(([_, pS]) => pS.playerStatus === "active")
       .map(([playerId]) => playerId);
 
+    const roundLosers: string[] = [];
+
     for (const p of room.players) {
       if (
         !p ||
@@ -832,9 +834,14 @@ export class GameManager {
 
       if (playersStats[p.id].score > game.maxMatchPoints) {
         playersStats[p.id].playerStatus = "lost";
-        game.playersLoserOrder.push(p.id);
+        roundLosers.push(p.id);
       }
     }
+
+    game.playersLoserOrder = [
+      ...game.playersLoserOrder,
+      ...roundLosers.sort().reverse(),
+    ];
 
     const LOOK_MOMENT = 2000;
     const totalDelay =

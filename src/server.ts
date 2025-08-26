@@ -3,10 +3,9 @@ import express, { Request, Response } from "express";
 import { createServer } from "http";
 import { networkInterfaces } from "os";
 import { Server, Socket } from "socket.io";
-import { Difficulty } from "./bot/computerPlayer";
 import { Card, TurnAction } from "./cards";
 import { GameManager } from "./gameManager";
-import { RoomCallbacks, RoomConfig, RoomManager } from "./roomManager";
+import { RoomCallbacks, RoomConfig, RoomManager, User } from "./roomManager";
 
 const app = express();
 const server = createServer(app);
@@ -44,23 +43,23 @@ io.on("connection", (socket: Socket) => {
   console.log(`Player connected: ${socket.id}`);
 
   // create_room Room management events (unchanged)
-  socket.on("create_room", (data: { nickName: string; config: RoomConfig }) => {
-    const { nickName, config } = data;
-    const roomId = roomManager.createRoom(socket, nickName, config);
+  socket.on("create_room", (data: { user: User; config: RoomConfig }) => {
+    const { user, config } = data;
+    const roomId = roomManager.createRoom(socket, user, config);
 
     if (roomId) {
-      console.log(`Room ${roomId} created by ${nickName}`);
+      console.log(`Room ${roomId} created by ${user.nickName}`);
     }
   });
 
   //quick_game
-  socket.on("quick_game", (data: { nickName: string }) => {
-    const { nickName } = data;
-    const roomId = roomManager.quickGame(socket, nickName);
+  socket.on("quick_game", (data: { user: User }) => {
+    const { user } = data;
+    const roomId = roomManager.quickGame(socket, user);
 
     if (roomId) {
       console.log(
-        `Quick game: Player ${nickName} joined/created room ${roomId}`
+        `Quick game: Player ${user.nickName} joined/created room ${roomId}`
       );
     }
   });
@@ -85,12 +84,12 @@ io.on("connection", (socket: Socket) => {
   );
 
   //join_room
-  socket.on("join_room", (data: { roomId: string; nickName: string }) => {
-    const { roomId, nickName } = data;
-    const success = roomManager.joinRoom(socket, roomId, nickName);
+  socket.on("join_room", (data: { roomId: string; user: User }) => {
+    const { roomId, user } = data;
+    const success = roomManager.joinRoom(socket, roomId, user);
 
     if (success) {
-      console.log(`Player ${nickName} joined room ${roomId}`);
+      console.log(`Player ${user.nickName} joined room ${roomId}`);
     }
   });
 
@@ -116,9 +115,9 @@ io.on("connection", (socket: Socket) => {
   );
 
   //leave_room
-  socket.on("leave_room", (data: { nickName: string; isAdmin: boolean }) => {
+  socket.on("leave_room", (data: { user: User; isAdmin: boolean }) => {
     const roomId = roomManager.getPlayerRoom(socket.id);
-    roomManager.leaveRoom(socket, data.nickName, data.isAdmin);
+    roomManager.leaveRoom(socket, data.user, data.isAdmin);
 
     if (roomId) {
       const room = roomManager.getRoomState(roomId);
@@ -211,13 +210,10 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
-  socket.on(
-    "create_bot_room",
-    (data: { nickName: string; config: RoomConfig }) => {
-      const { nickName, config } = data;
-      roomManager.createBotRoom(socket, nickName, config);
-    }
-  );
+  socket.on("create_bot_room", (data: { user: User; config: RoomConfig }) => {
+    const { user, config } = data;
+    roomManager.createBotRoom(socket, user, config);
+  });
 });
 
 const getLocalIP = () =>

@@ -265,7 +265,7 @@ export class GameManager {
     const currentPlayerIndex = game.currentPlayer;
     const currentPlayer = room.players[currentPlayerIndex];
 
-    if (game.playerHands[currentPlayer.id]?.length === 0) {
+    if (currentPlayer && game.playerHands[currentPlayer.id]?.length === 0) {
       // no cards call yaniv auto
       this.callYaniv(roomId, currentPlayer.id);
       return;

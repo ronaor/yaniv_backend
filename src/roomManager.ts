@@ -1,9 +1,11 @@
 import { isEmpty, isUndefined } from "lodash";
 import { Server, Socket } from "socket.io";
 import { Difficulty } from "./bot/computerPlayer";
+import { AVATAR_NAMES } from "./constants";
 export interface User {
   id: string;
   nickName: string;
+  avatarIndex: number;
   isBot?: boolean;
   difficulty?: Difficulty;
 }
@@ -206,17 +208,13 @@ export class RoomManager {
   }
 
   // Create a new room
-  createRoom(
-    socket: Socket,
-    nickName: string,
-    config: RoomConfig
-  ): string | null {
+  createRoom(socket: Socket, user: User, config: RoomConfig): string | null {
     const { slapDown, canCallYaniv, maxMatchPoints } = config;
 
-    if (!nickName || !canCallYaniv || !maxMatchPoints) {
+    if (!user.nickName || !canCallYaniv || !maxMatchPoints) {
       socket.emit("room_error", {
         message: "Missing required fields.",
-        nickName,
+        nickName: user.nickName,
         canCallYaniv,
         maxMatchPoints,
       });
@@ -226,13 +224,13 @@ export class RoomManager {
     // Remove from previous room if exists
     const prevRoomId = this.playerRooms[socket.id];
     if (prevRoomId) {
-      this.removePlayerFromRoom(socket, prevRoomId, nickName);
+      this.removePlayerFromRoom(socket, prevRoomId, user);
       delete this.playerRooms[socket.id];
     }
 
     const roomId = this.generateRoomCode();
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickName }],
+      players: [{ ...user, id: socket.id }],
       config: {
         slapDown,
         timePerPlayer: 15, // Default time per player
@@ -253,7 +251,7 @@ export class RoomManager {
       config: this.rooms[roomId].config,
     });
 
-    console.log(`Room ${roomId} created by ${nickName}`);
+    console.log(`Room ${roomId} created by ${user.nickName}`);
     return roomId;
   }
 
@@ -282,8 +280,8 @@ export class RoomManager {
   }
 
   // Quick game matchmaking
-  quickGame(socket: Socket, nickName: string): string | null {
-    if (!nickName) {
+  quickGame(socket: Socket, user: User): string | null {
+    if (!user.nickName) {
       socket.emit("room_error", { message: "Missing nickName." });
       return null;
     }
@@ -292,7 +290,7 @@ export class RoomManager {
     let roomId = this.findOpenRoom();
     if (roomId) {
       // Join existing open room
-      this.addPlayerToPublicRoom(socket, roomId, nickName);
+      this.addPlayerToPublicRoom(socket, roomId, user);
       return roomId;
     }
 
@@ -300,7 +298,7 @@ export class RoomManager {
     roomId = this.generateRoomCode();
 
     this.rooms[roomId] = {
-      players: [{ id: socket.id, nickName }],
+      players: [{ ...user, id: socket.id }],
       config: defaultConfig,
       gameState: "waiting",
       createdAt: new Date(),
@@ -316,15 +314,11 @@ export class RoomManager {
       config: this.rooms[roomId].config,
     });
 
-    console.log(`Quick game: Room ${roomId} created by ${nickName}`);
+    console.log(`Quick game: Room ${roomId} created by ${user.nickName}`);
     return roomId;
   }
 
-  addPlayerToPublicRoom(
-    socket: Socket,
-    roomId: string,
-    nickName: string
-  ): boolean {
+  addPlayerToPublicRoom(socket: Socket, roomId: string, user: User): boolean {
     const room = this.rooms[roomId];
     if (!room) {
       return false;
@@ -333,13 +327,13 @@ export class RoomManager {
     // Remove from previous room if exists
     const prevRoomId = this.playerRooms[socket.id];
     if (prevRoomId && prevRoomId !== roomId) {
-      this.removePlayerFromRoom(socket, prevRoomId, nickName);
+      this.removePlayerFromRoom(socket, prevRoomId, user);
       delete this.playerRooms[socket.id];
     }
 
     // Prevent duplicate join
     if (!room.players.some((p) => p?.id === socket.id)) {
-      room.players.push({ id: socket.id, nickName });
+      room.players.push({ ...user, id: socket.id });
     }
 
     this.playerRooms[socket.id] = roomId;
@@ -351,7 +345,7 @@ export class RoomManager {
       config: room.config,
     });
 
-    console.log(`Player ${nickName} joined room ${roomId}`);
+    console.log(`Player ${user.nickName} joined room ${roomId}`);
 
     this.handleGameStartCountdown(roomId); // NEW: Use shared timer logic
 
@@ -359,7 +353,7 @@ export class RoomManager {
   }
 
   // Join an existing room by roomId
-  joinRoom(socket: Socket, roomId: string, nickName: string): boolean {
+  joinRoom(socket: Socket, roomId: string, user: User): boolean {
     const room = this.rooms[roomId];
     console.log("🚀 ~ RoomManager ~ joinRoom ~ room:", room);
     if (!room) {
@@ -375,7 +369,7 @@ export class RoomManager {
       return false;
     }
 
-    return this.addPlayerToRoom(socket, roomId, nickName);
+    return this.addPlayerToRoom(socket, roomId, user);
   }
 
   // Start a private game when the admin requests it
@@ -403,7 +397,7 @@ export class RoomManager {
   }
 
   // Helper to add player to a room (used by join_room and quick_game)
-  addPlayerToRoom(socket: Socket, roomId: string, nickName: string): boolean {
+  addPlayerToRoom(socket: Socket, roomId: string, user: User): boolean {
     const room = this.rooms[roomId];
     if (!room) {
       return false;
@@ -412,13 +406,13 @@ export class RoomManager {
     // Remove from previous room if exists
     const prevRoomId = this.playerRooms[socket.id];
     if (prevRoomId && prevRoomId !== roomId) {
-      this.removePlayerFromRoom(socket, prevRoomId, nickName);
+      this.removePlayerFromRoom(socket, prevRoomId, user);
       delete this.playerRooms[socket.id];
     }
 
     // Prevent duplicate join
     if (!room.players.some((p) => p?.id === socket.id)) {
-      room.players.push({ id: socket.id, nickName });
+      room.players.push({ ...user, id: socket.id });
     }
 
     this.playerRooms[socket.id] = roomId;
@@ -431,7 +425,7 @@ export class RoomManager {
       canStartTheGameIn10Sec: new Date(), //TODO
     });
 
-    console.log(`Player ${nickName} joined room ${roomId}`);
+    console.log(`Player ${user.nickName} joined room ${roomId}`);
     // If room is now full, start the game
     if (room.players.length === 3) {
       // Assuming max 4 players
@@ -457,7 +451,7 @@ export class RoomManager {
   }
 
   // Remove player from room
-  removePlayerFromRoom(socket: Socket, roomId: string, nickName: string): void {
+  removePlayerFromRoom(socket: Socket, roomId: string, user: User): void {
     const room = this.rooms[roomId];
     if (!room) {
       return;
@@ -465,8 +459,8 @@ export class RoomManager {
 
     room.players = room.players.filter((p) => p?.id !== socket.id);
     console.log("room.votes", room.votes);
-    if (room.votes[nickName]) {
-      delete room.votes[nickName];
+    if (room.votes[user.id]) {
+      delete room.votes[user.id];
     }
 
     this.io.to(roomId).emit("player_left", {
@@ -488,7 +482,7 @@ export class RoomManager {
   }
 
   // Leave room explicitly
-  leaveRoom(socket: Socket, nickName: string, isAdmin: boolean): void {
+  leaveRoom(socket: Socket, user: User, isAdmin: boolean): void {
     const roomId = this.playerRooms[socket.id];
     console.log("🚀 ~ RoomManager ~ leaveRoom ~ socket.id:", socket.id);
     if (!roomId) {
@@ -502,7 +496,7 @@ export class RoomManager {
     // }
     // const room = this.rooms[roomId];
 
-    this.removePlayerFromRoom(socket, roomId, nickName);
+    this.removePlayerFromRoom(socket, roomId, user);
     delete this.playerRooms[socket.id];
     this.callbacks.leaveGame(roomId, socket.id);
 
@@ -532,12 +526,12 @@ export class RoomManager {
     return this.playerRooms[socketId];
   }
 
-  createBotRoom(socket: Socket, nickName: string, config: RoomConfig): string {
+  createBotRoom(socket: Socket, user: User, config: RoomConfig): string {
     const roomId = this.generateRoomCode();
 
     const humanPlayer = {
+      ...user,
       id: socket.id,
-      nickName,
       isBot: false,
     };
 
@@ -558,12 +552,16 @@ export class RoomManager {
     } = config;
 
     const numBots = numberOfPlayers - 1;
-    const botPlayers = Array.from({ length: numBots }).map((_, i) => ({
-      id: `bot-${i}-${roomId}`,
-      nickName: `בוט ${i + 1}`,
-      isBot: true,
-      difficulty,
-    }));
+    const botPlayers: User[] = Array.from({ length: numBots }).map((_, i) => {
+      const randomIndex = Math.floor(Math.random() * 49);
+      return {
+        id: `bot-${i}-${roomId}`,
+        nickName: AVATAR_NAMES[randomIndex],
+        isBot: true,
+        difficulty,
+        avatarIndex: randomIndex,
+      };
+    });
 
     this.rooms[roomId] = {
       players: [humanPlayer, ...botPlayers],

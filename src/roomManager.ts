@@ -259,7 +259,7 @@ export class RoomManager {
   setQuickGameConfig(
     socket: Socket,
     roomId: string,
-    nickName: string,
+    user: User,
     config: RoomConfig
   ): boolean {
     const room = this.rooms[roomId];
@@ -268,7 +268,7 @@ export class RoomManager {
       return false;
     }
 
-    room.votes[nickName] = config;
+    room.votes[socket.id] = config;
 
     this.io.to(roomId).emit("votes_config", {
       roomId,

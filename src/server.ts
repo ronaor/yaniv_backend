@@ -67,13 +67,13 @@ io.on("connection", (socket: Socket) => {
   //set_quick_game_config
   socket.on(
     "set_quick_game_config",
-    (data: { roomId: string; nickName: string; config: RoomConfig }) => {
-      const { roomId, nickName, config } = data;
+    (data: { roomId: string; user: User; config: RoomConfig }) => {
+      const { roomId, user, config } = data;
 
       const success = roomManager.setQuickGameConfig(
         socket,
         roomId,
-        nickName,
+        user,
         config
       );
 

@@ -10,6 +10,7 @@ type PlayerStatus = {
   score: number;
   playerStatus: PlayerStatusType;
   playerName: string;
+  avatarIndex: number;
 };
 
 export interface GameState {
@@ -31,6 +32,7 @@ export interface GameState {
   playersStats: Record<string, PlayerStatus>;
   round: number;
   slapDownCard?: Card;
+  playersLoserOrder: string[];
 }
 
 function removeSelectedCards(cards: Card[], selectedCards: Card[]) {
@@ -86,6 +88,7 @@ export class GameManager {
             score: 0,
             playerStatus: "active",
             playerName: user.nickName,
+            avatarIndex: user.avatarIndex,
           };
           return obj;
         },
@@ -100,6 +103,7 @@ export class GameManager {
       slapDownActiveFor: undefined,
       slapDownTimer: undefined,
       round: 0,
+      playersLoserOrder: [],
     };
 
     this.games[roomId] = gameState;
@@ -175,6 +179,7 @@ export class GameManager {
       slapDownActiveFor: undefined,
       playersStats: game.playersStats,
       round: game.round,
+      playersLoserOrder: game.playersLoserOrder,
     };
 
     this.games[roomId] = gameState;
@@ -827,6 +832,7 @@ export class GameManager {
 
       if (playersStats[p.id].score > game.maxMatchPoints) {
         playersStats[p.id].playerStatus = "lost";
+        game.playersLoserOrder.push(p.id);
       }
     }
 
@@ -839,7 +845,7 @@ export class GameManager {
       1;
 
     game.playersStats = playersStats;
-    this.games[roomId].playersStats = playersStats;
+    this.games[roomId] = game;
 
     const lastActivePlayers = Object.entries(playersStats)
       .filter(
@@ -971,11 +977,21 @@ export class GameManager {
 
     game.gameEnded = true;
     game.winner = winnerId;
+    game.playersLoserOrder.push(winnerId);
+    const places = game.playersLoserOrder.reverse();
 
+    Object.entries(game.playersStats).forEach(([id, _]) => {
+      if (!places.includes(id)) {
+        places.push(id);
+      }
+    });
+
+    this.games[roomId] = game;
     this.io.to(roomId).emit("game_ended", {
       winner: winnerId,
       finalScores: this.calculateFinalScores(roomId),
       playersStats: game.playersStats,
+      places,
     });
   }
 

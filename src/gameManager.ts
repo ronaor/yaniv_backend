@@ -849,7 +849,8 @@ export class GameManager {
         room.players.filter(
           (p) => game.playersStats[p.id]?.playerStatus === "active"
         ).length -
-      1;
+      1 +
+      (roundLosers.length > 0 ? 2500 : 0);
 
     game.playersStats = playersStats;
     this.games[roomId] = game;
@@ -887,21 +888,7 @@ export class GameManager {
     ).length;
 
     if (activeHumans === 0 && !game.gameEnded) {
-      const remainingActive = room.players.filter(
-        (p) => p && game.playersStats[p.id]?.playerStatus === "active"
-      );
-
-      if (remainingActive.length === 0) {
-        const winnerIdFallback = pickWinnerByScore(assafCaller);
-        this.endGame(roomId, winnerIdFallback);
-        return;
-      } else {
-        const winner = remainingActive.sort(
-          (a, b) => playersStats[a.id].score - playersStats[b.id].score
-        )[0];
-        this.endGame(roomId, winner.id);
-        return;
-      }
+      this.io.to(roomId).emit("human_lost");
     }
 
     this.io.to(roomId).emit("round_ended", {

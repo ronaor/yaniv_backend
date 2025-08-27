@@ -984,9 +984,13 @@ export class GameManager {
 
     game.gameEnded = true;
     game.winner = winnerId;
-    game.playersLoserOrder.push(winnerId);
-    const places = game.playersLoserOrder.reverse();
 
+    const places = game.playersLoserOrder.reverse();
+    if (!places.includes(winnerId)) {
+      places.unshift(winnerId);
+    }
+
+    // Players that left the game (they are not losers)
     Object.entries(game.playersStats).forEach(([id, _]) => {
       if (!places.includes(id)) {
         places.push(id);

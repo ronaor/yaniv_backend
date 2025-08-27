@@ -913,6 +913,7 @@ export class GameManager {
       playerHands: game.playerHands,
       roundPlayers,
       playersRoundScore,
+      losers: roundLosers,
     });
 
     const finishTimeout = setTimeout(() => {

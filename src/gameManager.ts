@@ -338,7 +338,7 @@ export class GameManager {
             }, 2000);
           }
         }
-      }, 2500);
+      }, 2000);
 
       return;
     }
@@ -850,7 +850,7 @@ export class GameManager {
           (p) => game.playersStats[p.id]?.playerStatus === "active"
         ).length -
       1 +
-      (roundLosers.length > 0 ? 2500 : 0);
+      (roundLosers.length > 0 ? LOOK_MOMENT + 1250 : 0);
 
     game.playersStats = playersStats;
     this.games[roomId] = game;

@@ -16,7 +16,7 @@ export const AVATAR_NAMES = [
   "Nora",
   "Alex",
   "Ethan",
-  "Noah",
+  "Albert",
   "Odin",
   "Raj",
   "Sophie",

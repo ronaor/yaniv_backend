@@ -2,6 +2,7 @@ import { isEmpty, isUndefined } from "lodash";
 import { Server, Socket } from "socket.io";
 import { Difficulty } from "./bot/computerPlayer";
 import { AVATAR_NAMES } from "./constants";
+import { shuffleArray } from "./utils";
 export interface User {
   id: string;
   nickName: string;
@@ -552,14 +553,26 @@ export class RoomManager {
     } = config;
 
     const numBots = numberOfPlayers - 1;
+
+    // Generate available avatar indexes (0-48)
+    const availableIndexes = Array.from(
+      { length: AVATAR_NAMES.length },
+      (_, i) => i
+    );
+
+    // Shuffle and take unique indexes for bots
+    const shuffledIndexes = shuffleArray(availableIndexes);
+    const botAvatarIndexes = shuffledIndexes.slice(0, numBots);
+
+    // Create bot players with unique avatar indexes
     const botPlayers: User[] = Array.from({ length: numBots }).map((_, i) => {
-      const randomIndex = Math.floor(Math.random() * 49);
+      const avatarIndex = botAvatarIndexes[i];
       return {
         id: `bot-${i}-${roomId}`,
-        nickName: AVATAR_NAMES[randomIndex],
+        nickName: AVATAR_NAMES[avatarIndex],
         isBot: true,
         difficulty,
-        avatarIndex: randomIndex,
+        avatarIndex,
       };
     });
 

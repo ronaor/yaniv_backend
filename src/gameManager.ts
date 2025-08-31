@@ -1112,4 +1112,11 @@ export class GameManager {
 
     return undefined;
   }
+
+  shareEmoji(roomId: string, userId: string, emojiIndex: number) {
+    this.io.to(roomId).emit("emoji_show", {
+      emojiIndex,
+      userId,
+    });
+  }
 }

@@ -210,6 +210,15 @@ io.on("connection", (socket: Socket) => {
     }
   });
 
+  //quick_game
+  socket.on("share_emoji", (data: { emojiIndex }) => {
+    const { emojiIndex } = data;
+    const roomId = roomManager.getPlayerRoom(socket.id);
+    if (roomId) {
+      gameManager.shareEmoji(roomId, socket.id, emojiIndex);
+    }
+  });
+
   socket.on("create_bot_room", (data: { user: User; config: RoomConfig }) => {
     const { user, config } = data;
     roomManager.createBotRoom(socket, user, config);
